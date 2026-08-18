@@ -1,0 +1,2 @@
+option_id,phasing_label,loose_pairing_label,n_components,n_mixed_haplotype_edges,n_ebg_cycles,n_ebg_nodes,n_possible_scenarios,scenarios_enumeration_truncated,optimal_max_chromosomes,n_optimal_scenarios,n_full_scenarios_bruteforce,bnb_expanded_states,bnb_matches_full_enum,bnb_speedup_factor,n_real_chromatids_genome_a,n_real_chromatids_genome_b
+option_001,phasing_0_0_0,no_loose,8,0,7,90,47293,False,2,6360,47293,453,True,104.4,8,8

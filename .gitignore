@@ -1,0 +1,15 @@
+# Archived / superseded material -- not part of the live pipeline
+archive/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE / tooling
+.idea/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

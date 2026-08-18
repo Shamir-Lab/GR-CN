@@ -1,0 +1,4 @@
+sample,n_subgraphs,n_raw_tied_phasings,n_canonical_tied_phasings,raw_enumeration_capped,n_loose_pairing_variants,n_full_options_written,distinct_optimal_max_chromosomes,objective_is_stable_across_options,elapsed_s
+CA-0098_5_18_22_X,3,1,1,False,1,1,2,True,9.1
+PM1284_3_11_12,1,128,128,True,1,128,3;4;5,False,3560.7
+852_T1_33_23905_6_9_12_14,1,1,1,False,1,1,3,True,54.7
