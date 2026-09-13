@@ -1,6 +1,15 @@
 # Archived / superseded material -- not part of the live pipeline
 archive/
 
+# Generated per-option CSV detail -- fully reproducible via
+# `python analysis/haplotype_options_report/run.py`; only the top-level
+# summary.csv / samples_overview.csv (and phasing_equivalence_classes.csv)
+# per sample are checked in.
+analysis/haplotype_options_report/*/option_*/
+
+# Paper-writing scratch (figure planning docs, not analysis output)
+Output/
+
 # Python
 __pycache__/
 *.pyc
