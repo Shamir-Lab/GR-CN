@@ -6,19 +6,27 @@ are applied (black - grey).  The cost of a step is evaluated on the intermediate
 genome *just before* that step, so the same cycle may have different cost
 depending on the order in which earlier cycles were executed.
 
-The search strategies are:
-  - exact (branch-and-bound): optimal but exponential in n_cycles
-  - beam: heuristic, good for large n_cycles
-  - greedy: fast upper bound
-  - auto: exact for n_cycles ≤ exact_max_cycles, otherwise beam
+Two exact search methods are supported (both correct; the graphs in this
+project never exceed ~10 cycles, well within reach of either):
+  - "dp": subset dynamic programming over all 2^n_cycles states, O(3^n) time.
+    Conceptually evaluates every possible ordered partition, just without
+    re-deriving shared subproblems.
+  - "branch_and_bound": depth-first search with memoization and pruning.
+    Typically faster in practice since it never expands provably-suboptimal
+    branches, but has no fixed time-complexity guarantee independent of
+    instance shape the way the DP does.
+
+Cycles are always first split into independent chromosome clusters
+(cluster_cycles) before either method runs — clusters can be ordered fully
+independently of one another, so solving them separately is never worse, and
+is exactly as correct, as solving the whole cycle set jointly.
 
 Entry point:
-    find_best_scenario(cycles, all_nodes, objective=cost_max, ...) -> ScenarioResult
+    find_best_scenario(cycles, all_nodes, method="dp", ...) -> ScenarioResult
+    find_best_scenario_clustered(...) -> (ScenarioResult, per_cluster_detail)
 """
 from __future__ import annotations
 
-import math
-import random
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
@@ -291,75 +299,17 @@ class DynamicGenomeScenario:
 # Search algorithms
 # ---------------------------------------------------------------------------
 
-def _greedy_upper_bound(
-    model: DynamicGenomeScenario,
-    timing: str,
-    seed: int = 0,
-    restarts: int = 50,
-) -> ScenarioResult:
-    rng = random.Random(seed)
-    best_obj = math.inf
-    best_partition: Optional[List[List[int]]] = None
-    best_costs: Optional[List[int]] = None
-    best_currs: Optional[List[int]] = None
-
-    for _ in range(max(1, restarts)):
-        state = 0
-        partition, costs, currs = [], [], []
-        while state != model.full_mask:
-            remaining = list(_bit_indices(model.full_mask ^ state))
-            rng.shuffle(remaining)
-            singles = sorted(
-                [(model.step_cost(state, 1 << i, timing), rng.random(), 1 << i) for i in remaining]
-            )
-            step = singles[0][2]
-            changed = True
-            while changed:
-                changed = False
-                base = model.step_cost(state, step, timing)
-                opts = sorted([
-                    (model.step_cost(state, step | (1 << i), timing) - base,
-                     model.step_cost(state, step | (1 << i), timing), rng.random(), i)
-                    for i in remaining if not (step & (1 << i))
-                ])
-                for inc, c, _, i in opts:
-                    if inc <= 0 or (inc == 1 and rng.random() < 0.15):
-                        step |= 1 << i
-                        changed = True
-                        break
-            currs.append(model.n_chromosomes(state))
-            costs.append(model.step_cost(state, step, timing))
-            partition.append(list(_bit_indices(step)))
-            state |= step
-
-        obj = max(costs) if costs else 0
-        if obj < best_obj or (obj == best_obj and best_partition and len(partition) < len(best_partition)):
-            best_obj, best_partition, best_costs, best_currs = obj, partition, costs, currs
-
-    return ScenarioResult(
-        status="FEASIBLE",
-        objective_value=int(best_obj),
-        partition=best_partition or [],
-        step_costs=best_costs or [],
-        step_num_chromosomes=best_currs or [],
-        method="greedy",
-        n_cycles=model.n_cycles,
-        expanded_states=0,
-        exact=False,
-    )
-
-
 def _exact_branch_and_bound(
     model: DynamicGenomeScenario,
     timing: str,
-    ub: Optional[ScenarioResult] = None,
 ) -> ScenarioResult:
-    if ub is None:
-        ub = _greedy_upper_bound(model, timing)
-
+    """Depth-first search with memoization, pruned against the best full
+    solution found so far. No greedy warm start is needed: with the graphs
+    in this project never exceeding ~10 cycles (2^10 = 1024 states), the
+    search is fast regardless of how good the first bound is."""
     # Use lists so inner function can mutate without nonlocal
-    best_obj = [ub.objective_value]
-    best = [ub.partition, ub.step_costs, ub.step_num_chromosomes]
+    best_obj = [float("inf")]
+    best = [[], [], []]
     expanded = [0]
     seen: Dict[int, int] = {}
 
@@ -416,98 +366,8 @@ def _exact_branch_and_bound(
     )
 
 
-def _beam_search(
-    model: DynamicGenomeScenario,
-    timing: str,
-    beam_width: int,
-    candidate_limit: int,
-    seed: int,
-    ub: Optional[ScenarioResult] = None,
-) -> ScenarioResult:
-    rng = random.Random(seed)
-    if ub is None:
-        ub = _greedy_upper_bound(model, timing, seed=seed, restarts=100)
-    best = ub
-    best_obj = ub.objective_value
-
-    beam: Dict[int, tuple] = {0: (0, [], [], [])}
-    expanded = 0
-
-    while beam:
-        next_beam: Dict[int, tuple] = {}
-        for state, (cur_max, parts, costs, currs) in beam.items():
-            if state == model.full_mask:
-                continue
-            expanded += 1
-            remaining = list(_bit_indices(model.full_mask ^ state))
-
-            # Candidates: all singletons + greedy packs
-            cands: Set[int] = {1 << i for i in remaining}
-            for seed_i in remaining:
-                step = 1 << seed_i
-                improved = True
-                while improved:
-                    improved = False
-                    base = model.step_cost(state, step, timing)
-                    opts = sorted([
-                        (model.step_cost(state, step | (1 << i), timing) - base, rng.random(), i)
-                        for i in remaining if not (step & (1 << i))
-                    ])
-                    for inc, _, i in opts:
-                        if best_obj == math.inf or model.step_cost(state, step | (1 << i), timing) <= best_obj:
-                            step |= 1 << i
-                            cands.add(step)
-                            improved = True
-                            break
-                cands.add(step)
-
-            ranked = sorted(
-                cands,
-                key=lambda s: (model.step_cost(state, s, timing), -_popcount(s)),
-            )[:candidate_limit]
-
-            for step in ranked:
-                c = model.step_cost(state, step, timing)
-                new_max = max(cur_max, c)
-                if new_max > best_obj + 2:
-                    continue
-                ns = state | step
-                nparts = parts + [step]
-                ncosts = costs + [c]
-                ncurrs = currs + [model.n_chromosomes(state)]
-
-                if ns == model.full_mask:
-                    if new_max < best_obj or (new_max == best_obj and len(nparts) < len(best.partition)):
-                        best_obj = new_max
-                        best = ScenarioResult(
-                            status="FEASIBLE",
-                            objective_value=int(new_max),
-                            partition=[list(_bit_indices(s)) for s in nparts],
-                            step_costs=ncosts,
-                            step_num_chromosomes=ncurrs,
-                            method="beam_search",
-                            n_cycles=model.n_cycles,
-                            expanded_states=expanded,
-                            exact=False,
-                        )
-                    continue
-
-                old = next_beam.get(ns)
-                if old is None or (new_max, len(nparts)) < (old[0], len(old[1])):
-                    next_beam[ns] = (new_max, nparts, ncosts, ncurrs)
-
-        ranked_beam = sorted(
-            next_beam.items(),
-            key=lambda kv: (kv[1][0], -_popcount(kv[0]), len(kv[1][1])),
-        )
-        beam = dict(ranked_beam[:beam_width])
-
-    best.expanded_states = expanded
-    return best
-
-
 # ---------------------------------------------------------------------------
-# ILP: subset DP (provably optimal, O(3^k) time, O(2^k) space)
+# Full enumeration via subset DP (provably optimal, O(3^k) time, O(2^k) space)
 # ---------------------------------------------------------------------------
 
 def _dp_exact(
@@ -570,22 +430,45 @@ def _dp_exact(
 # Public API
 # ---------------------------------------------------------------------------
 
+def _find_best_scenario_single(
+    cycles: Sequence[Sequence[EBGNode]],
+    all_nodes: Optional[Iterable[EBGNode]],
+    count_components: str,
+    timing: str,
+    method: str,
+) -> ScenarioResult:
+    """Solve one (already-clustered) set of cycles jointly -- no further
+    decomposition. Internal helper; use find_best_scenario / _clustered."""
+    model = DynamicGenomeScenario(cycles, all_nodes, count_components)
+
+    if model.n_cycles == 0:
+        return ScenarioResult(
+            status="OPTIMAL", objective_value=0, partition=[], step_costs=[],
+            step_num_chromosomes=[], method=method, n_cycles=0,
+            expanded_states=0, exact=True,
+        )
+
+    if method == "dp":
+        return _dp_exact(model, timing)
+    if method == "branch_and_bound":
+        return _exact_branch_and_bound(model, timing)
+    raise ValueError(f"method must be 'dp' or 'branch_and_bound', got {method!r}")
+
+
 def find_best_scenario(
     cycles: Sequence[Sequence[EBGNode]],
     all_nodes: Optional[Iterable[EBGNode]] = None,
     count_components: str = "real",
     timing: str = "before",
-    method: str = "auto",
-    exact_max_cycles: int = 16,
-    ilp_max_cycles: int = 18,
-    beam_width: int = 5000,
-    candidate_limit: int = 100,
-    random_restarts: int = 200,
-    seed: int = 0,
+    method: str = "dp",
 ) -> ScenarioResult:
     """
     Find the scenario (ordered partition of EBG cycles) that minimises
     the maximum number of genome components touched per step (cost_max).
+
+    Cycles are always first split into independent chromosome clusters and
+    solved separately (see find_best_scenario_clustered) -- this is never
+    worse than solving them jointly and is exactly as correct.
 
     Parameters
     ----------
@@ -599,52 +482,14 @@ def find_best_scenario(
     timing:
         'before' | 'after' | 'both' — when to evaluate chromosome count.
     method:
-        'auto' | 'exact' | 'ilp' | 'beam' | 'greedy'
-    exact_max_cycles:
-        Use exact (B&B) search for n_cycles ≤ this in auto mode.
-    ilp_max_cycles:
-        Use DP-exact ILP for n_cycles ≤ this when method='ilp'; beam above.
+        'dp' (subset dynamic programming, full enumeration) or
+        'branch_and_bound' (depth-first search with pruning). Both exact.
     """
-    model = DynamicGenomeScenario(cycles, all_nodes, count_components)
-
-    if model.n_cycles == 0:
-        return ScenarioResult(
-            status="OPTIMAL", objective_value=0, partition=[], step_costs=[],
-            step_num_chromosomes=[], method=method, n_cycles=0,
-            expanded_states=0, exact=True,
-        )
-
-    greedy = _greedy_upper_bound(model, timing, seed=seed, restarts=random_restarts)
-
-    if method == "greedy":
-        return greedy
-    if method == "exact":
-        return _exact_branch_and_bound(model, timing, ub=greedy)
-    if method == "beam":
-        return _beam_search(model, timing, beam_width, candidate_limit, seed, ub=greedy)
-    if method == "ilp":
-        if model.n_cycles <= ilp_max_cycles:
-            return _dp_exact(model, timing)
-        result = _beam_search(model, timing, beam_width, candidate_limit, seed, ub=greedy)
-        result.message = (
-            f"Beam search used (n_cycles={model.n_cycles} > ilp_max_cycles={ilp_max_cycles})."
-        )
-        result.method = "ilp_beam_fallback"
-        return result
-
-    if method != "auto":
-        raise ValueError(
-            f"method must be 'auto', 'exact', 'ilp', 'beam', or 'greedy', got {method!r}"
-        )
-
-    if model.n_cycles <= exact_max_cycles:
-        return _exact_branch_and_bound(model, timing, ub=greedy)
-
-    result = _beam_search(model, timing, beam_width, candidate_limit, seed, ub=greedy)
-    result.message = (
-        f"Beam search used (n_cycles={model.n_cycles} > exact_max_cycles={exact_max_cycles})."
+    combined, _per_cluster = find_best_scenario_clustered(
+        cycles, all_nodes=all_nodes, count_components=count_components,
+        timing=timing, method=method,
     )
-    return result
+    return combined
 
 
 def find_best_scenario_clustered(
@@ -652,13 +497,7 @@ def find_best_scenario_clustered(
     all_nodes: Optional[Iterable[EBGNode]] = None,
     count_components: str = "real",
     timing: str = "before",
-    method: str = "auto",
-    exact_max_cycles: int = 16,
-    ilp_max_cycles: int = 18,
-    beam_width: int = 5000,
-    candidate_limit: int = 100,
-    random_restarts: int = 200,
-    seed: int = 0,
+    method: str = "dp",
 ) -> Tuple["ScenarioResult", List[Tuple[List[int], "ScenarioResult"]]]:
     """
     Find optimal scenario by optimizing each independent chromosome cluster separately.
@@ -681,18 +520,12 @@ def find_best_scenario_clustered(
     per_cluster: List[Tuple[List[int], ScenarioResult]] = []
     for cluster_idx in clusters:
         cluster_cycs = [cycles_list[i] for i in cluster_idx]
-        local = find_best_scenario(
+        local = _find_best_scenario_single(
             cluster_cycs,
             all_nodes=all_nodes_list,
             count_components=count_components,
             timing=timing,
             method=method,
-            exact_max_cycles=exact_max_cycles,
-            ilp_max_cycles=ilp_max_cycles,
-            beam_width=beam_width,
-            candidate_limit=candidate_limit,
-            random_restarts=random_restarts,
-            seed=seed,
         )
         global_partition = [[cluster_idx[li] for li in step] for step in local.partition]
         remapped = ScenarioResult(

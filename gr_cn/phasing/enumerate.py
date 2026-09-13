@@ -7,55 +7,48 @@ Optimality is defined by a strict lexicographic hierarchy, solved jointly
   stage 1: minimize number of phased connected components   (existing ILP obj)
   stage 2: minimize total cross-haplotype ("mixed") edges    (existing ILP obj)
   stage 3: minimize the COUNT of hap1 nodes that touch any mixed edge
-           (the hap0-priority rule, solved exactly -- see
-           analysis/phasing_tiebreak/joint_minimize_unresolved.py for the
-           verification that this must be solved jointly, not greedily:
-           greedy per-node locking in iid order was shown to leave 852 with
-           22 "unresolved" nodes when the true joint minimum is only 6)
+           (the hap0-priority rule, solved exactly, not greedily -- a greedy
+           per-node lock in iid order was shown to leave a real sample with
+           22 "unresolved" nodes when the true joint minimum was only 6)
 
 Every subgraph solution tied at (opt_comp, opt_mixed, opt_bad) is enumerated
 via no-good cuts, deduplicated by its grey_pairs signature. Subgraphs combine
 by Cartesian product (bounded) and each combined phasing is then crossed with
-every tied-minimal loose-end pairing (gr_cn.phasing.loose logic).
+every tied-minimal loose-end pairing.
+
+This is the exhaustive counterpart to ilp.phase(): phase() returns one
+optimal phasing; enumerate_full_options() returns every phasing tied at that
+same optimum, crossed with every tied loose-end pairing.
 """
 from __future__ import annotations
 
 import itertools
-import sys
-from dataclasses import replace
-from pathlib import Path
 from typing import Dict, List, Tuple
 
-import networkx as nx
 from ortools.sat.python import cp_model
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEGEN_DIR = REPO_ROOT / "analysis" / "phasing_degeneracy"
-for p in (REPO_ROOT, DEGEN_DIR):
-    if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
-
 from gr_cn.phasing import ilp, loose
-from degeneracy_experiment import build_subgraphs, _grey_pair_signature, enumerate_loose_pairings  # noqa: E402
+from gr_cn.phasing.ilp import build_subgraphs
 
 SOLVE_TIME_LIMIT_S = 120.0
 ENUM_SOLVE_TIME_LIMIT_S = 15.0
 # Ties at the exact 3-stage optimum can genuinely number in the dozens+ for
-# larger subgraphs (see analysis/phasing_tiebreak/ -- 852's subgraph alone
-# has 182 hap1 candidate nodes). Enumerating literally all of them is not
-# tractable in report-generation time, so this is a reporting cap, not a
-# claim of exhaustiveness -- meta["truncated"] records when it was hit.
+# larger subgraphs. Enumerating literally all of them is not tractable in
+# report-generation time, so this is a reporting cap, not a claim of
+# exhaustiveness -- meta["truncated"] records when it was hit.
 MAX_SOLUTIONS_PER_SUBGRAPH = 128
 MAX_ATTEMPTS_PER_SUBGRAPH = 1500
 MAX_TOTAL_PHASING_COMBOS = 128
 VERBOSE = True
 
+_CROSS_CHR_PENALTY = loose._CROSS_CHR_PENALTY
 
-def _solver(time_limit: float = SOLVE_TIME_LIMIT_S, workers: int = 1) -> cp_model.CpSolver:
+
+def _solver(time_limit: float = SOLVE_TIME_LIMIT_S, workers: int = 1, seed: int = 0) -> cp_model.CpSolver:
     s = cp_model.CpSolver()
     s.parameters.max_time_in_seconds = time_limit
     s.parameters.num_search_workers = workers
-    s.parameters.random_seed = 0
+    s.parameters.random_seed = seed
     return s
 
 
@@ -63,7 +56,7 @@ def _solve_or_die(solver: cp_model.CpSolver, model, label: str) -> int:
     """Solve and return the objective value, raising loudly instead of
     silently reading ObjectiveValue() off a timed-out/infeasible solve
     (CP-SAT returns 0 for that, which is indistinguishable from a real
-    answer of 0 -- this caused a real 852 bug: a timed-out stage-1 solve
+    answer of 0 -- this caused a real bug once: a timed-out stage-1 solve
     silently produced opt_comp=0, cascading into '0 tied options found')."""
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -83,29 +76,39 @@ def _node_mixed_terms(d, node):
     return terms
 
 
-def exact_stage_values(G, alt_adj_weights, _retries: int = 3) -> Tuple[int, int, int]:
+def _grey_pair_signature(grey_pairs) -> frozenset:
+    return frozenset(tuple(sorted((u, v))) for u, v in grey_pairs)
+
+
+def exact_stage_values(G, alt_adj_weights, cpu_n: int = 1, _retries: int = 3) -> Tuple[int, int, int]:
     """Return (opt_comp, opt_mixed, opt_bad) -- the exact joint optimum.
 
-    Uses multiple search workers here (unlike the enumeration loop, which
-    stays single-threaded for reproducible no-good-cut ordering) because
-    these three solves just need one fast, certifiably-optimal answer.
+    Uses cpu_n CP-SAT search workers here (unlike the enumeration loop
+    below, which stays single-threaded for reproducible no-good-cut
+    ordering) because these three solves just need one fast, certifiably-
+    optimal answer.
 
-    CP-SAT with a large worker count on a large model (e.g. 852's 352-node
-    subgraph) has been observed -- rarely, non-reproducibly, with no
-    associated exception or bad status -- to report OPTIMAL with opt_comp=0
-    for a non-empty graph, which is structurally impossible (you cannot
-    cover >0 nodes with 0 components). Retrying with a fresh model/solver
-    has always recovered the correct answer, so guard against this rather
-    than trust a single solve blindly.
+    CP-SAT with a large worker count on a large model has been observed --
+    rarely, non-reproducibly, with no associated exception or bad status --
+    to report OPTIMAL with opt_comp=0 for a non-empty graph, which is
+    structurally impossible (you cannot cover >0 nodes with 0 components).
+    Retrying with a fresh model/solver (and cpu_n forced to 1) has always
+    recovered the correct answer, so guard against this rather than trust a
+    single solve blindly.
     """
     n_nodes = len(G.nodes())
     for attempt in range(_retries):
-        n_workers = min(8, max(1, __import__("os").cpu_count() or 1)) if attempt == 0 else 1
+        # Vary both worker count and random seed across attempts -- a rare,
+        # non-reproducible CP-SAT bug can otherwise return the same
+        # impossible result deterministically every time when cpu_n == 1
+        # (constant workers=1, seed=0 on every attempt gives byte-identical
+        # search behaviour, so a genuine retry needs *something* to differ).
+        n_workers = cpu_n if attempt == 0 else 1
 
         d1 = ilp._build_model(G)
         ilp._add_alt_usage_constraints(d1, alt_adj_weights)
         d1["model"].Minimize(d1["num_comp_expr"])
-        s1 = _solver(SOLVE_TIME_LIMIT_S, workers=n_workers)
+        s1 = _solver(SOLVE_TIME_LIMIT_S, workers=n_workers, seed=attempt)
         opt_comp = _solve_or_die(s1, d1["model"], "stage1 (min components)")
         if opt_comp > 0 or n_nodes == 0:
             break
@@ -169,15 +172,22 @@ def _build_locked_model(G, alt_adj_weights, opt_comp, opt_mixed, opt_bad):
     return d4
 
 
-def enumerate_subgraph_options(G, alt_adj_weights) -> List[Dict]:
-    """All distinct-signature solutions tied at the exact 3-stage optimum."""
+def enumerate_subgraph_options(G, alt_adj_weights, cpu_n: int = 1) -> Tuple[List[Dict], bool]:
+    """All distinct-signature solutions tied at the exact 3-stage optimum.
+
+    Returns (solutions, exhaustive). exhaustive=True means the no-good-cut
+    search genuinely reached INFEASIBLE (a real completeness proof, not a
+    cap or a give-up); exhaustive=False means it stopped early (a cap was
+    hit, or a solve stayed UNKNOWN after escalating retries) -- solutions is
+    then only a lower bound on the true tied-option count.
+    """
     if len(G.nodes()) == 0:
         return [{"components": [], "grey_pairs": [],
                   "objective_num_components": 0,
                   "objective_num_mixed_haplotype_edges": 0,
-                  "objective_bad_nodes": 0}]
+                  "objective_bad_nodes": 0}], True
 
-    opt_comp, opt_mixed, opt_bad = exact_stage_values(G, alt_adj_weights)
+    opt_comp, opt_mixed, opt_bad = exact_stage_values(G, alt_adj_weights, cpu_n=cpu_n)
 
     # The locked model (opt_comp/opt_mixed/opt_bad all fixed as equalities)
     # is EXACTLY the constraint set exact_stage_values already proved
@@ -185,42 +195,77 @@ def enumerate_subgraph_options(G, alt_adj_weights) -> List[Dict]:
     # here is just as structurally impossible as exact_stage_values'
     # opt_comp=0 case, and has been observed to happen just as rarely/
     # non-reproducibly. Rebuild-and-retry rather than trust it silently.
+    #
+    # A genuine UNKNOWN (solver hit the time limit without any verdict) is a
+    # different situation from a wrongly-returned INFEASIBLE: it just means
+    # this attempt's time budget was too tight for this thread count on a
+    # large model, not that anything is broken -- so it gets a bigger time
+    # budget next attempt rather than only a different seed.
     first_status = None
-    for build_attempt in range(3):
+    time_limit = ENUM_SOLVE_TIME_LIMIT_S
+    for build_attempt in range(5):
         d4 = _build_locked_model(G, alt_adj_weights, opt_comp, opt_mixed, opt_bad)
-        n_workers = min(4, max(1, __import__("os").cpu_count() or 1)) if build_attempt == 0 else 1
-        solver = _solver(ENUM_SOLVE_TIME_LIMIT_S, workers=n_workers)
+        n_workers = cpu_n if build_attempt == 0 else 1
+        solver = _solver(time_limit, workers=n_workers, seed=build_attempt)
         first_status = solver.Solve(d4["model"])
         if first_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             break
         if VERBOSE:
             print(f"    ... locked model impossibly returned "
                   f"{solver.StatusName(first_status)} on first solve "
-                  f"(build attempt {build_attempt + 1}/3, workers={n_workers}); rebuilding", flush=True)
+                  f"(build attempt {build_attempt + 1}/5, workers={n_workers}, "
+                  f"time_limit={time_limit:.0f}s); rebuilding", flush=True)
+        if first_status == cp_model.UNKNOWN:
+            time_limit *= 2
     else:
         raise RuntimeError(
             "enumerate_subgraph_options: locked model (opt_comp/opt_mixed/opt_bad fixed to "
             f"values exact_stage_values already proved feasible: {opt_comp}/{opt_mixed}/{opt_bad}) "
-            "kept reporting infeasible after 3 rebuild attempts -- not a transient fluke."
+            "kept reporting infeasible/unknown after 5 rebuild attempts with growing time "
+            "budgets -- not a transient fluke or a slow solve; needs investigation."
         )
 
     model, x, A = d4["model"], d4["x"], d4["A"]
     solutions: List[Dict] = []
     seen_sigs = set()
+    exhaustive = True  # False if we ever give up on an UNKNOWN rather than
+                        # proving genuine INFEASIBLE -- solutions is then a
+                        # lower bound, not the true tied-option count.
+    attempt_time_limit = ENUM_SOLVE_TIME_LIMIT_S
 
     for attempt in range(MAX_ATTEMPTS_PER_SUBGRAPH):
         if len(solutions) >= MAX_SOLUTIONS_PER_SUBGRAPH:
+            exhaustive = False
+            if VERBOSE:
+                print(f"    ... stopping: hit MAX_SOLUTIONS_PER_SUBGRAPH={MAX_SOLUTIONS_PER_SUBGRAPH} "
+                      f"(not necessarily exhaustive)", flush=True)
             break
-        status = first_status if attempt == 0 else solver.Solve(model)
+        if attempt == 0:
+            status = first_status
+        else:
+            # A genuine UNKNOWN here just means this particular no-good-cut
+            # solve was harder than the current time budget -- give it more
+            # time and retry rather than silently under-reporting the count
+            # as if INFEASIBLE had been proven. Only after several escalating
+            # retries still come back UNKNOWN do we give up (and say so).
+            for retry in range(4):
+                solver.parameters.max_time_in_seconds = attempt_time_limit
+                status = solver.Solve(model)
+                if status != cp_model.UNKNOWN:
+                    break
+                attempt_time_limit *= 2
+                if VERBOSE:
+                    print(f"    ... attempt {attempt}: UNKNOWN at time_limit="
+                          f"{attempt_time_limit/2:.0f}s, retrying at {attempt_time_limit:.0f}s "
+                          f"(retry {retry + 1}/4)", flush=True)
         if VERBOSE and attempt % 10 == 0:
             print(f"    ... attempt {attempt}: found={len(solutions)} status={solver.StatusName(status)}",
                   flush=True)
         if status == cp_model.UNKNOWN:
-            # Time limit hit without proving optimal/infeasible -- treat the
-            # search as exhausted rather than looping until MAX_ATTEMPTS.
+            exhaustive = False
             if VERBOSE:
-                print(f"    ... stopping: solver hit time limit without a verdict "
-                      f"(found={len(solutions)})", flush=True)
+                print(f"    ... stopping: solver still UNKNOWN after escalating retries "
+                      f"(found={len(solutions)}, NOT proven exhaustive)", flush=True)
             break
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             break
@@ -253,18 +298,50 @@ def enumerate_subgraph_options(G, alt_adj_weights) -> List[Dict]:
         model.Add(
             sum(x[a].Not() for a in used_arcs) + sum(x[a] for a in unused_arcs) >= 1
         )
+    else:
+        exhaustive = False
+        if VERBOSE:
+            print(f"    ... stopping: hit MAX_ATTEMPTS_PER_SUBGRAPH={MAX_ATTEMPTS_PER_SUBGRAPH} "
+                  f"(not necessarily exhaustive)", flush=True)
 
-    return solutions
+    return solutions, exhaustive
 
 
-def enumerate_sample_phasing_options(graph, reference, L: int = 2):
+def _enumerate_subgraph_options_task(args: Tuple) -> Tuple[List[Dict], bool]:
+    """Picklable single-argument wrapper for process-pool use."""
+    sg, alt_adj_weights, cpu_n = args
+    return enumerate_subgraph_options(sg, alt_adj_weights, cpu_n=cpu_n)
+
+
+def enumerate_sample_phasing_options(graph, reference, L: int = 2, cpu_n: int = 1, n_workers: int = 1):
     """
     Returns (phasing_options, meta) where phasing_options is a list of
     (label, ilp.PhasingResult), each a distinct tied-optimal joint phasing,
     and meta carries per-subgraph diagnostics.
+
+    cpu_n:
+        CP-SAT search workers used *within* each subgraph's solves.
+    n_workers:
+        Number of subgraphs enumerated in parallel (separate OS processes).
+        Each weakly-connected subgraph's tied-option search is fully
+        independent of the others -- this is typically the most expensive
+        part of the whole pipeline for samples with many subgraphs, so it's
+        the highest-value place to add process-level parallelism. cpu_n and
+        n_workers multiply; keep their product within your core count.
     """
     subgraphs, alt_adj_weights = build_subgraphs(graph, reference, L=L)
-    per_subgraph_solutions = [enumerate_subgraph_options(sg, alt_adj_weights) for sg in subgraphs]
+
+    if n_workers > 1 and len(subgraphs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        tasks = [(sg, alt_adj_weights, cpu_n) for sg in subgraphs]
+        with ProcessPoolExecutor(max_workers=min(n_workers, len(subgraphs))) as ex:
+            raw_results = list(ex.map(_enumerate_subgraph_options_task, tasks))
+    else:
+        raw_results = [enumerate_subgraph_options(sg, alt_adj_weights, cpu_n=cpu_n)
+                        for sg in subgraphs]
+
+    per_subgraph_solutions = [r[0] for r in raw_results]
+    per_subgraph_exhaustive = [r[1] for r in raw_results]
 
     meta = {
         "n_subgraphs": len(subgraphs),
@@ -275,6 +352,8 @@ def enumerate_sample_phasing_options(graph, reference, L: int = 2):
             for s in per_subgraph_solutions
         ],
         "per_subgraph_hit_solution_cap": [len(s) >= MAX_SOLUTIONS_PER_SUBGRAPH for s in per_subgraph_solutions],
+        "per_subgraph_exhaustive": per_subgraph_exhaustive,
+        "all_subgraphs_exhaustive": all(per_subgraph_exhaustive),
     }
 
     total_combos = 1
@@ -325,8 +404,7 @@ def canonical_topology_signature(graph, reference, phasing, L: int = 2) -> tuple
       - swapping which physical strand is CALLED haplotype 0 vs 1 for any
         rearrangement region untouched by a deletion/gain (nothing in the
         ILP objective or the hap0-priority tiebreak distinguishes the two
-        labels there -- see analysis/phasing_tiebreak/ for the empirical
-        trace that first surfaced this),
+        labels there),
       - swapping which extra gained copy is CALLED copy_index 1 vs 2 for a
         gained interval (both sit on haplotype 0 and are physically
         indistinguishable pieces of the same parental strand).
@@ -334,8 +412,7 @@ def canonical_topology_signature(graph, reference, phasing, L: int = 2) -> tuple
     per cycle, the same haplotype-agnostic key merge_partner_cycles already
     uses to detect homozygous partner cycles) collapses exactly those
     label-only differences while keeping genuinely different downstream
-    event structures apart -- this is what PM1284's "40+ tied phasings"
-    inflation turned out to be.
+    event structures apart.
     """
     from gr_cn.ebg import builder, cycles as ebg_cycles
 
@@ -369,7 +446,55 @@ def dedupe_phasing_options_by_topology(graph, reference, options, L: int = 2):
     return representatives, equivalence_classes
 
 
-def enumerate_full_options(graph, reference, L: int = 2, dedupe: bool = True):
+def enumerate_loose_pairings(graph, phasing) -> List[Tuple[str, list]]:
+    """Returns list of (label, extra_pairs) -- all minimal-total-distance
+    pairings (ties included). Empty list if nothing to resolve."""
+    loose_sides = loose._non_telomeric_loose_sides(graph)
+    if not loose_sides:
+        return [("no_loose", [])]
+
+    open_ends = []
+    for comp in phasing.components:
+        if comp["type"] not in ("path", "singleton"):
+            continue
+        nodes = comp["nodes"]
+        for node in (nodes[0], nodes[-1]):
+            iid, side, _hap, _copy = node
+            if (iid, side) in loose_sides and node not in open_ends:
+                open_ends.append(node)
+
+    n = len(open_ends)
+    if n == 0:
+        return [("no_open_ends", [])]
+    if n % 2 != 0 or n > 4:
+        return [("unresolved_too_many", [])]
+    if n == 2:
+        return [("only_pairing", [(open_ends[0], open_ends[1])])]
+
+    a, b, c, d = open_ends
+
+    def pair_distance(u, v):
+        chrom_u, pos_u = loose._position(graph, u)
+        chrom_v, pos_v = loose._position(graph, v)
+        if chrom_u != chrom_v:
+            return _CROSS_CHR_PENALTY + abs(pos_u - pos_v)
+        return abs(pos_u - pos_v)
+
+    candidates = {
+        "ab_cd": [(a, b), (c, d)],
+        "ac_bd": [(a, c), (b, d)],
+        "ad_bc": [(a, d), (b, c)],
+    }
+    dists = {k: sum(pair_distance(x, y) for x, y in v) for k, v in candidates.items()}
+    best = min(dists.values())
+    ties = [(k, candidates[k]) for k, dv in dists.items() if dv == best]
+    return ties
+
+
+def enumerate_full_options(
+    graph, reference, L: int = 2, dedupe: bool = True,
+    cpu_n: int = 1, n_workers: int = 1,
+):
     """
     Returns (full, meta, equivalence_classes).
 
@@ -382,16 +507,19 @@ def enumerate_full_options(graph, reference, L: int = 2, dedupe: bool = True):
     are deduplicated to a single representative BEFORE crossing with
     loose-end pairings.
     dedupe=False: every raw arc-level tied solution found gets its own
-    option/folder, undeduplicated -- including near-duplicates that are the
-    same event with an arbitrary haplotype/copy relabeling (see the
-    conversation for concrete examples of what that looks like).
+    option, undeduplicated -- including near-duplicates that are the same
+    event with an arbitrary haplotype/copy relabeling.
+
+    cpu_n / n_workers: see enumerate_sample_phasing_options.
 
     equivalence_classes: representative phasing_label -> list of ALL raw
     phasing labels (arc-level distinct, pre-dedup) that collapsed into it.
     When dedupe=False this is the trivial 1:1 mapping (kept for schema
     consistency, not because any collapsing happened).
     """
-    raw_phasing_options, meta = enumerate_sample_phasing_options(graph, reference, L=L)
+    raw_phasing_options, meta = enumerate_sample_phasing_options(
+        graph, reference, L=L, cpu_n=cpu_n, n_workers=n_workers,
+    )
     meta["n_raw_phasing_options"] = len(raw_phasing_options)
 
     if dedupe:

@@ -5,6 +5,11 @@ CSV writers for one haplotype-phasing option's full deliverable folder:
   ebg_structure.csv          -- EBG edges (Definition 4; shared adjacencies stripped)
   ebg_components_summary.csv -- one row per extracted EBG cycle/component
   scenarios_summary.csv      -- one row per possible (k,d,g)-break scenario ordering
+
+write_all_options() drives this across every tied-optimal option for a
+sample, optionally in parallel -- each option's downstream EBG-build +
+cycle-extraction + scenario-search + CSV-write is fully independent of every
+other option's.
 """
 from __future__ import annotations
 
@@ -93,7 +98,7 @@ def write_genome_b_csv(raw_nodes, out_path: Path) -> None:
     ])
 
 
-def write_ebg_structure_csv(ebg_nodes, raw_cycles, out_path: Path) -> Dict[int, int]:
+def write_ebg_structure_csv(ebg_nodes, raw_cycles, out_path: Path) -> Dict[tuple, int]:
     """Returns node.key() -> cycle_id map (for reuse by the components summary)."""
     cycle_of_key: Dict[tuple, int] = {}
     for ci, cyc in enumerate(raw_cycles):
@@ -211,16 +216,11 @@ def write_scenarios_summary_csv(cycles_on_raw, raw_nodes, out_path: Path) -> dic
             })
         n_optimal = sum(1 for r in rows if r["is_global_optimal"])
     else:
-        if len(cycles_on_raw) > 1:
-            best, _ = enumeration.find_best_scenario_clustered(
-                cycles=cycles_on_raw, all_nodes=raw_nodes, timing="before", method="auto",
-                exact_max_cycles=16, ilp_max_cycles=18,
-            )
-        else:
-            best = enumeration.find_best_scenario(
-                cycles=cycles_on_raw, all_nodes=raw_nodes, timing="before", method="auto",
-                exact_max_cycles=16, ilp_max_cycles=18,
-            )
+        # find_best_scenario always splits into independent chromosome
+        # clusters internally before searching -- no need to special-case it here.
+        best = enumeration.find_best_scenario(
+            cycles=cycles_on_raw, all_nodes=raw_nodes, timing="before", method="dp",
+        )
         rows.append({
             "scenario_id": 1,
             "n_steps": len(best.partition),
@@ -275,7 +275,7 @@ def _write_csv(path: Path, rows: List[dict], columns: List[str]) -> None:
 
 def build_option_downstream(graph, reference, phasing, extra_pairs, L: int = 2) -> dict:
     """Run EBG-build + cycle extraction (independent-haplotypes / no merge,
-    matching main.py's current default) for one phasing option."""
+    matching main.py's default) for one phasing option."""
     phasing = replace(phasing, grey_pairs=list(phasing.grey_pairs) + list(extra_pairs))
 
     raw_nodes = builder.build(graph, reference, phasing, L=L)
@@ -310,3 +310,35 @@ def write_option_folder(graph, reference, phasing, extra_pairs, out_dir: Path, L
         "n_components": dr["phasing"].num_components,
         **scen_meta,
     }
+
+
+def _write_option_task(args: tuple) -> dict:
+    """Picklable single-argument wrapper for process-pool use."""
+    graph, reference, opt, out_root, L = args
+    out_dir = out_root / opt["option_id"]
+    stats = write_option_folder(graph, reference, opt["phasing"], opt["extra_pairs"], out_dir, L=L)
+    return {
+        "option_id": opt["option_id"],
+        "phasing_label": opt["phasing_label"],
+        "loose_pairing_label": opt["loose_label"],
+        **stats,
+    }
+
+
+def write_all_options(graph, reference, options: List[dict], out_root: Path,
+                       L: int = 2, n_workers: int = 1) -> List[dict]:
+    """
+    Write one CSV folder per tied-optimal option (see enumerate_full_options),
+    under out_root/<option_id>/. Each option's downstream work (EBG build,
+    cycle extraction, scenario search, CSV write) is fully independent of
+    every other option's, so this is embarrassingly parallel.
+
+    Returns one summary dict per option, in the same order as `options`.
+    """
+    tasks = [(graph, reference, opt, out_root, L) for opt in options]
+
+    if n_workers > 1 and len(options) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=min(n_workers, len(options))) as ex:
+            return list(ex.map(_write_option_task, tasks))
+    return [_write_option_task(t) for t in tasks]

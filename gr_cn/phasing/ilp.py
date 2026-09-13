@@ -17,7 +17,7 @@ Entry point: phase(graph, L=2) -> PhasingResult
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import networkx as nx
 from ortools.sat.python import cp_model
@@ -317,38 +317,19 @@ def _solve_subgraph(
 # Public API
 # ---------------------------------------------------------------------------
 
-def phase(
+def build_subgraphs(
     graph: JabbaGraph,
     reference: ReferenceGenome,
     L: int = 2,
-    time_limit_s: float = 200.0,
-    cpu_n: int = 1,
-) -> PhasingResult:
+) -> Tuple[List[nx.MultiDiGraph], Dict[int, int]]:
     """
-    Run the phasing ILP on a parsed JABBA graph.
+    Build the per-weakly-connected-component phasing subgraphs and their
+    ALT-adjacency usage weights.
 
-    Parameters
-    ----------
-    graph:
-        Parsed JABBA graph (output of io.jabba.load).
-    reference:
-        Reference genome (Genome A) from io.reference.build(), used to look up
-        each interval's n_deleted / n_gained so haplotype copies that will be
-        DC-capped (deleted) are excluded from phasing up front — see note below.
-    L:
-        Number of haplotypes (default 2 for diploid).
-    time_limit_s:
-        Per-subgraph CP-SAT time limit in seconds.
-    cpu_n:
-        Number of CP-SAT worker threads.
+    Each subgraph is solved independently (phase() and
+    gr_cn.phasing.enumerate both do this); splitting them out here means
+    that graph-construction logic exists in exactly one place.
 
-    Returns
-    -------
-    PhasingResult
-        Phased components with haplotype assignments and ALT adjacency pairs.
-
-    Notes
-    -----
     Deleted haplotype copies (n_deleted > 0) are always haplotype indices
     0..n_deleted-1 (both, for a homozygous deletion) — matching the
     convention gr_cn.ebg.builder uses for DC-node capping. Those copies are
@@ -418,6 +399,68 @@ def phase(
         [G.subgraph(c).copy() for c in nx.weakly_connected_components(G)],
         key=len,
     )
+    return subgraphs, alt_adj_weights
+
+
+def _solve_subgraph_task(args: Tuple[int, nx.MultiDiGraph, float, int, Dict[int, int]]) -> Tuple[int, Dict]:
+    """Picklable (index, subgraph, ...) -> (index, result) wrapper for
+    process-pool use -- ProcessPoolExecutor.map needs a single-argument
+    top-level function."""
+    i, sg, time_limit_s, cpu_n, alt_adj_weights = args
+    return i, _solve_subgraph(sg, time_limit_s=time_limit_s, cpu_n=cpu_n,
+                               alt_adj_weights=alt_adj_weights)
+
+
+def phase(
+    graph: JabbaGraph,
+    reference: ReferenceGenome,
+    L: int = 2,
+    time_limit_s: float = 200.0,
+    cpu_n: int = 1,
+    n_workers: int = 1,
+) -> PhasingResult:
+    """
+    Run the phasing ILP on a parsed JABBA graph.
+
+    Parameters
+    ----------
+    graph:
+        Parsed JABBA graph (output of io.jabba.load).
+    reference:
+        Reference genome (Genome A) from io.reference.build(), used to look up
+        each interval's n_deleted / n_gained so haplotype copies that will be
+        DC-capped (deleted) are excluded from phasing up front.
+    L:
+        Number of haplotypes (default 2 for diploid).
+    time_limit_s:
+        Per-subgraph CP-SAT time limit in seconds.
+    cpu_n:
+        Number of CP-SAT worker threads used *within* each subgraph's solve.
+    n_workers:
+        Number of subgraphs to solve in parallel (separate OS processes).
+        Each weakly-connected subgraph is phased fully independently of the
+        others, so this is embarrassingly parallel. Note cpu_n and n_workers
+        multiply (n_workers processes x cpu_n CP-SAT threads each) -- keep
+        their product within your machine's core count.
+
+    Returns
+    -------
+    PhasingResult
+        Phased components with haplotype assignments and ALT adjacency pairs.
+    """
+    subgraphs, alt_adj_weights = build_subgraphs(graph, reference, L=L)
+
+    results: List[Optional[Dict]] = [None] * len(subgraphs)
+    if n_workers > 1 and len(subgraphs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        tasks = [(i, sg, time_limit_s, cpu_n, alt_adj_weights) for i, sg in enumerate(subgraphs)]
+        with ProcessPoolExecutor(max_workers=min(n_workers, len(subgraphs))) as ex:
+            for i, result in ex.map(_solve_subgraph_task, tasks):
+                results[i] = result
+    else:
+        for i, sg in enumerate(subgraphs):
+            results[i] = _solve_subgraph(sg, time_limit_s=time_limit_s, cpu_n=cpu_n,
+                                          alt_adj_weights=alt_adj_weights)
 
     all_components: List[Dict] = []
     all_grey_pairs: List[Tuple[PhaseNode, PhaseNode]] = []
@@ -426,11 +469,8 @@ def phase(
     total_mixed = 0
     overall_status = "OPTIMAL"
 
-    for i, sg in enumerate(subgraphs):
-        key = f"subgraph_{i}"
-        result = _solve_subgraph(sg, time_limit_s=time_limit_s, cpu_n=cpu_n,
-                                 alt_adj_weights=alt_adj_weights)
-        subgraph_results[key] = result
+    for i, result in enumerate(results):
+        subgraph_results[f"subgraph_{i}"] = result
         if result["status"] == "INFEASIBLE_OR_UNKNOWN":
             overall_status = "INFEASIBLE_OR_UNKNOWN"
             continue
