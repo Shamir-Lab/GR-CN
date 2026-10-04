@@ -75,36 +75,39 @@ def select_phasing(rows: list) -> dict:
 
 def representative_scenarios(scenarios: list, optimal: enumeration.ScenarioResult) -> list:
     """
-    Up to four scenarios with distinct C_max: all at once (one step); the
-    worst multi-step scenario with a different C_max (which can be worse
-    than all at once); one in between; and the optimum. For each value the
-    scenario with fewest steps (first found) is used.
+    The scenarios drawn for a sample, in this order:
+      1. all at once: every cycle in a single step;
+      2. singletons: every cycle in its own step -- the worst-scoring order,
+         to show that the order matters;
+      3. the optimum, unless 1 or 2 already attains it;
+      4. a suboptimal scenario that is neither 1 nor 2 (between 2 and m-1
+         steps), preferring three steps and a C_max not shown yet.
+    Among equal candidates the first enumerated is used.
     """
-    def fewest_steps(value, min_steps=1):
-        cands = [s for s in scenarios if s.objective_value == value and len(s.partition) >= min_steps]
-        return min(cands, key=lambda s: len(s.partition)) if cands else None
-
+    m = max(len(s.partition) for s in scenarios)  # number of cycles
+    opt = optimal.objective_value
     joint = next(s for s in scenarios if len(s.partition) == 1)
     picks = [("All at once", joint)]
-    multi = sorted({s.objective_value for s in scenarios
-                    if len(s.partition) > 1 and s.objective_value != joint.objective_value})
-    if multi:
-        worst = multi[-1]
-        between = [v for v in multi if optimal.objective_value < v < worst]
-        picks.append(("Suboptimal", fewest_steps(worst, 2)))
-        if between:
-            picks.append(("Intermediate", fewest_steps(between[(len(between) - 1) // 2], 2)))
-    picks.append(("Optimal", optimal))
+    if m > 1:
+        singles = [s for s in scenarios if len(s.partition) == m]
+        worst = max(singles, key=lambda s: s.objective_value)  # max() keeps the first of ties
+        picks.append(("Singletons (optimal)" if worst.objective_value == opt else "Singletons", worst))
+    if all(s.objective_value != opt for _, s in picks):
+        picks.append(("Optimal", optimal))
 
-    out, used = [], set()
-    for name, s in picks:
-        if s is None or (s.objective_value in used and name != "Optimal"):
+    shown = {s.objective_value for _, s in picks}
+    middle = [s for s in scenarios if 1 < len(s.partition) < m and s.objective_value > opt]
+    for pool in ([s for s in middle if len(s.partition) == 3], middle):
+        if not pool:
             continue
-        out = [o for o in out if o["cmax"] != s.objective_value]  # optimum wins a tie
-        used.add(s.objective_value)
-        out.append({"name": name, "cmax": s.objective_value,
-                    "partition": s.partition, "step_costs": s.step_costs})
-    return out
+        values = sorted({s.objective_value for s in pool})
+        fresh = [v for v in values if v not in shown] or values
+        target = fresh[(len(fresh) - 1) // 2]
+        picks.append(("Suboptimal", next(s for s in pool if s.objective_value == target)))
+        break
+
+    return [{"name": name, "cmax": s.objective_value, "n_steps": len(s.partition),
+             "partition": s.partition, "step_costs": s.step_costs} for name, s in picks]
 
 
 def measure_effort(cycles, nodes, repeats: int) -> dict:
