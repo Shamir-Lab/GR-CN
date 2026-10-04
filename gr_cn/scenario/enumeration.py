@@ -303,26 +303,35 @@ def _exact_branch_and_bound(
     model: DynamicGenomeScenario,
     timing: str,
 ) -> ScenarioResult:
-    """Depth-first search with memoization, pruned against the best full
-    solution found so far. No greedy warm start is needed: with the graphs
-    in this project never exceeding ~10 cycles (2^10 = 1024 states), the
-    search is fast regardless of how good the first bound is."""
-    # Use lists so inner function can mutate without nonlocal
+    """Exact depth-first branch-and-bound over execution states (sets of
+    executed cycles), minimizing cost_max (Algorithm 2 of the paper).
+
+    Pruning:
+      - bound: a child whose running maximum reaches the incumbent is dropped
+        (cost_max never decreases along a branch);
+      - dominance: a state already reached with a running maximum <= the
+        current one is not expanded again (its completions depend only on
+        the state, not on how it was reached);
+      - singleton bound: step_cost is monotone in the step, so a step costs at
+        least its costliest single cycle; children that cannot beat the
+        incumbent are dropped before their cost is evaluated.
+    Children are explored cheapest first (larger steps first among equals)
+    so that a good incumbent is found early. Only the objective is optimized;
+    among optimal scenarios, the one found first is returned.
+    """
     best_obj = [float("inf")]
     best = [[], [], []]
     expanded = [0]
     seen: Dict[int, int] = {}
+    # Monotonicity only holds when cost is taken on the state before the
+    # step; with 'after'/'both' the evaluated genome depends on the step.
+    use_singleton_bound = timing == "before"
 
     def dfs(state: int, cur_max: int, parts: List[int], costs: List[int], currs: List[int]) -> None:
         expanded[0] += 1
 
-        # Check the finish line before consulting the memo below: `seen` only
-        # tracks the best cur_max reached per state, not step count, so a
-        # longer path that reaches full_mask first can "claim" the memo slot
-        # and cause a later, shorter path landing on the same final cur_max to
-        # be pruned before ever reaching the tie-break (fewest steps) below.
         if state == model.full_mask:
-            if cur_max < best_obj[0] or (cur_max == best_obj[0] and len(parts) < len(best[0])):
+            if cur_max < best_obj[0]:
                 best_obj[0] = cur_max
                 best[0] = [list(_bit_indices(s)) for s in parts]
                 best[1] = costs[:]
@@ -335,19 +344,23 @@ def _exact_branch_and_bound(
         seen[state] = cur_max
 
         remaining = model.full_mask ^ state
-        subs = []
+        single = {i: (model.step_cost(state, 1 << i, timing) if use_singleton_bound else 0)
+                  for i in _bit_indices(remaining)}
+        children = []
         sub = remaining
         while sub:
-            subs.append(sub)
+            if max(cur_max, max(single[i] for i in _bit_indices(sub))) < best_obj[0]:
+                if use_singleton_bound and sub & (sub - 1) == 0:
+                    c = single[sub.bit_length() - 1]
+                else:
+                    c = model.step_cost(state, sub, timing)
+                children.append((c, -_popcount(sub), sub))
             sub = (sub - 1) & remaining
-        subs.sort(key=lambda s: (model.step_cost(state, s, timing), -_popcount(s)))
+        children.sort()
 
-        for step in subs:
-            c = model.step_cost(state, step, timing)
+        for c, _, step in children:
             new_max = max(cur_max, c)
-            if new_max > best_obj[0]:
-                continue
-            if new_max == best_obj[0] and len(parts) + 1 >= len(best[0]):
+            if new_max >= best_obj[0]:
                 continue
             dfs(state | step, new_max, parts + [step], costs + [c],
                 currs + [model.n_chromosomes(state)])

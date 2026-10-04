@@ -9,7 +9,8 @@ Implements Definition 4 from the paper:
     Nodes
     -----
     - INTERNAL (synteny) nodes: one (TAIL, HEAD) pair per interval × haplotype × copy.
-    - TELOMERE nodes: chromosome ends.
+    - TELOMERE nodes: chromosome ends that differ between A and B, added last
+      (cycles.cap_open_paths) to close the open alternating paths they end.
     - DC nodes: one (T_DC, H_DC) pair per deleted copy
                 (diploid_cn > cancer_cn for that interval).
     - AH nodes: one (T_AH, H_AH) pair per gained copy
@@ -38,6 +39,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set, Tuple
 
+from gr_cn.ebg.cycles import cap_open_paths
 from gr_cn.io.jabba import JabbaGraph
 from gr_cn.io.reference import ReferenceGenome
 from gr_cn.models.node import EBGNode, NodeType, End
@@ -241,4 +243,10 @@ def build(
         for copy_i in range(1, info.n_gained + 1):
             set_grey(ah_node(iv.iid, "t", copy_i), ah_node(iv.iid, "h", copy_i))
 
-    return list(nodes.values())
+    # ------------------------------------------------------------------
+    # 11. TELOMERE vertices: close open alternating paths (chromosome ends
+    #     that differ between A and B), so the EBG is a union of cycles.
+    # ------------------------------------------------------------------
+    node_list = list(nodes.values())
+    node_list.extend(cap_open_paths(node_list))
+    return node_list
