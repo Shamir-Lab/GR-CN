@@ -20,10 +20,13 @@ Output layout:
 """
 from __future__ import annotations
 
+import argparse
 import csv
+import json
+import shutil
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -65,7 +68,10 @@ def run_sample(path: str, chroms, label: str, cpu_n: int, n_workers: int) -> dic
     else:
         # No ambiguity at all (raw IS canonical) -- skip the redundant
         # duplicate pass/folder and drop the _raw suffix.
-        (OUT_ROOT / f"{label}_raw").rename(OUT_ROOT / label)
+        target = OUT_ROOT / label
+        if target.exists():
+            shutil.rmtree(target)
+        (OUT_ROOT / f"{label}_raw").rename(target)
         n_canonical = 1
 
     return {
@@ -80,16 +86,41 @@ def run_sample(path: str, chroms, label: str, cpu_n: int, n_workers: int) -> dic
     }
 
 
-def main(cpu_n: int = 1, n_workers: int = 1) -> None:
-    overview = [run_sample(path, chroms, label, cpu_n, n_workers) for path, chroms, label in SAMPLES]
+OVERVIEW_COLUMNS = [
+    "sample", "n_subgraphs", "n_raw_tied_phasings", "n_canonical_tied_phasings",
+    "raw_enumeration_capped", "n_loose_pairing_variants",
+    "distinct_optimal_max_chromosomes", "objective_is_stable_across_options",
+]
+# Per-sample overview rows, so samples can run as separate processes
+# (--sample) and be combined afterwards (--overview-only).
+PARTS = OUT_ROOT / ".overview"
 
-    _write_csv(OUT_ROOT / "samples_overview.csv", overview, [
-        "sample", "n_subgraphs", "n_raw_tied_phasings", "n_canonical_tied_phasings",
-        "raw_enumeration_capped", "n_loose_pairing_variants",
-        "distinct_optimal_max_chromosomes", "objective_is_stable_across_options",
-    ])
+
+def main(samples: Optional[List[str]] = None, overview_only: bool = False,
+         cpu_n: int = 1, n_workers: int = 1) -> None:
+    PARTS.mkdir(exist_ok=True)
+    if not overview_only:
+        for path, chroms, label in SAMPLES:
+            if samples and label not in samples:
+                continue
+            row = run_sample(path, chroms, label, cpu_n, n_workers)
+            (PARTS / f"{label}.json").write_text(json.dumps(row), encoding="utf-8")
+        if samples:
+            return
+
+    overview = [json.loads((PARTS / f"{label}.json").read_text(encoding="utf-8"))
+                for _, _, label in SAMPLES]
+    _write_csv(OUT_ROOT / "samples_overview.csv", overview, OVERVIEW_COLUMNS)
     print("\nDone. samples_overview.csv written.", flush=True)
 
 
 if __name__ == "__main__":
-    main()
+    p = argparse.ArgumentParser(description="Run the exhaustive pipeline on the paper's samples.")
+    p.add_argument("--sample", nargs="+", choices=[s[2] for s in SAMPLES],
+                   help="run only these samples (combine later with --overview-only)")
+    p.add_argument("--overview-only", action="store_true",
+                   help="only combine per-sample results into samples_overview.csv")
+    p.add_argument("--cpu", type=int, default=1, help="CP-SAT workers per solve")
+    p.add_argument("--workers", type=int, default=1, help="parallel processes across options")
+    a = p.parse_args()
+    main(a.sample, a.overview_only, a.cpu, a.workers)

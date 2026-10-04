@@ -6,6 +6,15 @@ archive/
 # summary.csv / samples_overview.csv (and phasing_equivalence_classes.csv)
 # per sample are checked in.
 analysis/haplotype_options_report/*/option_*/
+analysis/haplotype_options_report/.overview/
+
+# Run logs and per-sample intermediate outputs of scripts/reproduce_all.sh
+logs/
+repro/
+benchmark/results/
+
+# Large raster renders; the PDF/HTML versions of each figure are checked in
+paper_outputs/figures/*/scenario.png
 
 # Paper-writing scratch (figure planning docs, not analysis output)
 Output/
@@ -14,6 +23,8 @@ Output/
 __pycache__/
 *.pyc
 .venv/
+*.egg-info/
+.pytest_cache/
 
 # IDE / tooling
 .idea/

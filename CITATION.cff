@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the accompanying paper."
+title: "GR-CN: Modeling the evolutionary history of complex rearrangements"
+authors:
+  - family-names: Ben-Yishay
+    given-names: Tal
+    affiliation: "Tel Aviv University"
+  - family-names: Shamir
+    given-names: Ron
+    affiliation: "Tel Aviv University"
+repository-code: "https://github.com/Talbenyishay/GR-CN"
+version: 0.1.0

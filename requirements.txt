@@ -1,0 +1,8 @@
+# Exact versions used to produce the results in this repository (Python 3.13).
+# Install with: pip install -r requirements.txt && pip install -e .
+ortools==9.15.6755
+networkx==3.7
+pandas==3.0.6
+openpyxl==3.1.5
+matplotlib==3.11.2
+pytest==9.1.1

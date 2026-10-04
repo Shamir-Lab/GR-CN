@@ -17,6 +17,37 @@ The whole pipeline has been run end to end on 3 real cancer samples (see
 [Samples](#samples)); this README documents both how to reproduce that and
 exactly what every output file means.
 
+## Quick start
+
+```bash
+git clone https://github.com/Talbenyishay/GR-CN.git && cd GR-CN
+python -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt      # exact versions used for the paper
+pip install -e .
+pytest                               # checks the paper's CA-0098 numbers (seconds)
+
+# one sample, one phasing, best scenario
+python main.py jabba_data/graphs_all/CA-0098.json --chromosomes 5 18 22 23 --quick
+```
+
+## Reproducing the paper
+
+```bash
+bash scripts/reproduce_all.sh
+```
+
+| Paper item | Produced by | Output |
+|---|---|---|
+| Case-study results, Table S1 (phasing ambiguity), Table S2 (C_max distributions) | `analysis/haplotype_options_report/run.py` | `analysis/haplotype_options_report/` |
+| Table S3 (search effort: brute force vs DP vs branch-and-bound) | `benchmark/run_benchmark.py` | `benchmark/results.csv` |
+| Tables S1–S3 as CSV + LaTeX | `scripts/make_tables.py` | `paper_outputs/tables/` |
+| Genome A / Genome B / scenario figures | `scripts/make_figures.py` | `paper_outputs/figures/` |
+
+Each sample runs as its own process; the slowest (852_T1_33_23905) takes
+about 1.5 h on one core, the others minutes. CP-SAT runs with one worker
+(`--cpu 1`) so phasing enumeration is deterministic.
+
 ## Pipeline
 
 ```
@@ -74,17 +105,30 @@ gr_cn/                          core library package
   ebg/           builder.py, cycles.py         — Extended Breakpoint Graph construction + cycle extraction
   scenario/      enumeration.py                — scenario search (DP / branch-and-bound, exact)
                  clustering.py                 — independent chromosome-cluster decomposition (union-find)
+                 objective.py                  — alternative scenario objectives (max, sum, max-then-sum)
   report.py                                    — CSV writers for one tied-phasing option's full deliverable
+  viz/                                         — Genome A/B and scenario drawings (matplotlib + interactive SVG)
 
 main.py                         CLI entry point (run_quick / run_exhaustive)
 
 analysis/
   haplotype_options_report/     the 3-sample results deliverable (see below)
     run.py                        drives all 3 samples through main.run_exhaustive()
+benchmark/
+  run_benchmark.py              search-effort benchmark (Table S3)
+  merge_results.py              combines per-sample benchmark runs
+  results.csv                   benchmark output, one row per canonical phasing option
+scripts/
+  reproduce_all.sh              runs everything below in order
+  make_tables.py                Tables S1–S3 (CSV + LaTeX) from the outputs above
+  make_figures.py               Genome A/B/scenario figures for any sample / phasing option
+paper_outputs/                  generated tables and figures
 
 data/                            reference annotation (chromosome arm boundaries)
 jabba_data/graphs_all/           the 3 JaBbA samples used by this repo
-tests/                           test package (scaffold)
+tests/                           regression tests pinning the paper's CA-0098 results
+requirements.txt                 exact dependency versions used for the paper
+CITATION.cff                     citation metadata
 GR_CN.pdf                        the paper
 
 archive/                         historical/exploratory material, gitignored -- not part of the live pipeline
@@ -129,7 +173,9 @@ Key options:
 ### Reproducing the full 3-sample results deliverable
 
 ```bash
-python analysis/haplotype_options_report/run.py
+python analysis/haplotype_options_report/run.py                          # all samples, sequentially
+python analysis/haplotype_options_report/run.py --sample PM1284_3_11_12  # one sample
+python analysis/haplotype_options_report/run.py --overview-only          # combine into samples_overview.csv
 ```
 
 Runs all three samples end to end. **For each sample, the raw (undeduplicated)
@@ -372,11 +418,6 @@ The reconstruction follows the paper's formal framework (`GR_CN.pdf`):
 
 ## Installation
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate      # Windows
-pip install -e .
-```
-
-Requires Python ≥3.10. Core dependencies: `ortools` (CP-SAT), `networkx`,
-`pandas`, `openpyxl`.
+See [Quick start](#quick-start). Requires Python ≥3.10 (results produced
+with 3.13). Core dependencies: `ortools` (CP-SAT), `networkx`, `pandas`,
+`openpyxl`, `matplotlib`; `requirements.txt` pins the exact versions.
