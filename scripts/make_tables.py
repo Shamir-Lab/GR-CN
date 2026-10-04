@@ -46,7 +46,10 @@ def _sample_dirs():
         else:
             out.setdefault(name, {})["raw"] = d
             out[name]["canonical"] = d
-    return out
+    # Paper order, not alphabetical.
+    order = ["CA-0098", "PM1284", "852"]
+    return dict(sorted(out.items(), key=lambda kv: next(
+        (i for i, p in enumerate(order) if kv[0].startswith(p)), len(order))))
 
 
 def table_s1() -> pd.DataFrame:

@@ -197,7 +197,7 @@ analysis/haplotype_options_report/
     option_001/*.csv ... option_128/*.csv
     summary.csv
   PM1284_3_11_12_canonical/                same sample: topology-deduplicated
-    option_001/*.csv ... option_037/*.csv
+    option_001/*.csv ... option_048/*.csv
     summary.csv
     phasing_equivalence_classes.csv
   852_T1_33_23905_6_9_12_14_raw/
@@ -241,32 +241,26 @@ alone is the full picture:
 | Sample | Raw tied phasings | Canonical (distinct) phasings | Optimal score across options |
 |---|---|---|---|
 | CA-0098 | 1 | 1 | 2 (fixed — zero ambiguity) |
-| PM1284 | 128 (search plateaued — likely at/near the true count) | 37 | **3 / 4 / 5 — genuinely varies** |
-| 852_T1_33_23905 | 128 (hit a hard cap, no plateau — a confirmed floor, not the true count) | 80 | **3 for all 80 — invariant** |
+| PM1284 | 128 (capped) | 48 | **3 / 4 / 5 — genuinely varies** |
+| 852_T1_33_23905 | 128 (capped) | 124 | **4 for all 124 — invariant** |
 
 Two importantly different situations, both real:
-- **PM1284**: most of its 128 raw ties (91 of them) really are relabeling
-  noise, but the 37 that remain are *genuinely structurally different*
+- **PM1284**: most of its 128 raw ties (80 of them) really are relabeling
+  noise, but the 48 that remain are *genuinely structurally different*
   reconstructions, and they disagree on the final answer. The choice of
   phasing is a real, consequential ambiguity here.
-- **852**: only a minority of its 128 raw ties (48) are relabeling noise —
-  80 are genuinely distinct reconstructions — yet every single one of those
-  80 agrees on the final score. This is a *stronger* robustness result than
-  PM1284's would be even if it had collapsed further: real structural
-  ambiguity that provably doesn't change the reconstructed parsimony
+- **852**: almost none of its 128 raw ties (4) are relabeling noise —
+  124 are genuinely distinct reconstructions (with 5, 6 or 7 EBG cycles) —
+  yet every single one of those 124 agrees on the final score. Real
+  structural ambiguity that doesn't change the reconstructed parsimony
   objective, not just cosmetic ambiguity that trivially doesn't matter.
 
 **Caveat:** for PM1284 and 852, the raw search is capped at
 `MAX_SOLUTIONS_PER_SUBGRAPH = 128` per phasing subgraph
 (`gr_cn/phasing/enumerate.py`) — a reporting cap, not a claim of
 exhaustiveness (`raw_enumeration_capped` in `summary.csv`/
-`samples_overview.csv` records whether it was hit). For PM1284 the search's
-own find-curve plateaued well before the cap (no new solution found in the
-last 30 attempts), so 128 is plausibly the true count. For 852 the find-curve
-never plateaued (a new solution on almost every attempt, right up to the
-cap), so both its raw and canonical counts are floors, not proven totals —
-though the score itself (3, stable across all 80 canonical options found so
-far) is unlikely to be affected by finding more.
+`samples_overview.csv` records whether it was hit). Both samples hit it, so
+their raw and canonical counts are lower bounds, not proven totals.
 
 ## CSV file reference
 

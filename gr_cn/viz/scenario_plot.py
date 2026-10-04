@@ -86,6 +86,17 @@ def plot_genome_b(jabba_path: str, chromosomes: Optional[List[int]] = None,
     return fig, pr
 
 
+def plot_ebg(jabba_path: str, chromosomes: Optional[List[int]] = None,
+              pr: Optional[PipelineResult] = None, **pipeline_kwargs):
+    """Single panel: the EBG cycles on the initial genome (first scenario panel)."""
+    pr = pr or run_pipeline(jabba_path, chromosomes=chromosomes, **pipeline_kwargs)
+    chrom_colors = _chrom_colors(chromosomes, pr)
+    step = build_viz_steps(pr.all_cycles, pr.scenario.partition, all_nodes=pr.raw_nodes)[0]
+    title = f"EBG -- {pr.graph.sample_name} ({len(pr.all_cycles)} cycles)"
+    fig = _single_panel_figure(step, step, chrom_colors, title)
+    return fig, pr
+
+
 def plot_scenario(jabba_path: str, chromosomes: Optional[List[int]] = None,
                    pr: Optional[PipelineResult] = None, **pipeline_kwargs):
     pr = pr or run_pipeline(jabba_path, chromosomes=chromosomes, **pipeline_kwargs)
