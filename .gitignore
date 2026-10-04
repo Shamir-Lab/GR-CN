@@ -28,7 +28,6 @@ __pycache__/
 
 # IDE / tooling
 .idea/
-.claude/
 
 # OS
 .DS_Store
