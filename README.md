@@ -129,7 +129,7 @@ jabba_data/graphs_all/           the 3 JaBbA samples used by this repo
 tests/                           regression tests pinning the paper's CA-0098 results
 requirements.txt                 exact dependency versions used for the paper
 CITATION.cff                     citation metadata
-GR_CN.pdf                        the paper
+LICENSE                          MIT
 
 archive/                         historical/exploratory material, gitignored -- not part of the live pipeline
 ```
@@ -376,7 +376,7 @@ steps — i.e. literal brute-force enumeration of the scenario search space:
 
 ## Method
 
-The reconstruction follows the paper's formal framework (`GR_CN.pdf`):
+The reconstruction follows the paper's formal framework:
 
 - **Definition 4 (Extended Breakpoint Graph):** nodes for every synteny
   block × haplotype × copy, plus synthetic DC (deletion-collector) and AH
@@ -421,3 +421,7 @@ The reconstruction follows the paper's formal framework (`GR_CN.pdf`):
 See [Quick start](#quick-start). Requires Python ≥3.10 (results produced
 with 3.13). Core dependencies: `ortools` (CP-SAT), `networkx`, `pandas`,
 `openpyxl`, `matplotlib`; `requirements.txt` pins the exact versions.
+
+## License
+
+MIT -- see [LICENSE](LICENSE).
