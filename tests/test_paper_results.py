@@ -56,6 +56,19 @@ def test_ca0098_optimum(ca0098, method):
     assert result.objective_value == 2
 
 
+def test_ca0098_search_effort_counters(ca0098):
+    """Enumeration visits every node of the ordered-partition tree (2 F_m of
+    them); branch-and-bound reaches the optimum with far fewer."""
+    cycles, nodes = ca0098
+    stats = {}
+    n = sum(1 for _ in enumeration.enumerate_all_scenarios(cycles, nodes, stats=stats))
+    assert n == fubini(7) and stats["nodes"] == 2 * fubini(7)
+    res = enumeration._exact_branch_and_bound(
+        enumeration.DynamicGenomeScenario(cycles, nodes), "before")
+    assert res.objective_value == 2
+    assert 1 <= res.n_complete_scenarios <= res.expanded_states < stats["nodes"]
+
+
 def test_ca0098_scenario_distribution(ca0098):
     """Appendix C, Table S2: C_max over all 47,293 ordered partitions."""
     cycles, nodes = ca0098

@@ -94,6 +94,8 @@ class ScenarioResult:
     expanded_states: int
     exact: bool
     message: str = ""
+    # Branch-and-bound only: complete scenarios (leaves) the search reached.
+    n_complete_scenarios: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +324,7 @@ def _exact_branch_and_bound(
     best_obj = [float("inf")]
     best = [[], [], []]
     expanded = [0]
+    complete = [0]
     seen: Dict[int, int] = {}
     # Monotonicity only holds when cost is taken on the state before the
     # step; with 'after'/'both' the evaluated genome depends on the step.
@@ -331,6 +334,7 @@ def _exact_branch_and_bound(
         expanded[0] += 1
 
         if state == model.full_mask:
+            complete[0] += 1
             if cur_max < best_obj[0]:
                 best_obj[0] = cur_max
                 best[0] = [list(_bit_indices(s)) for s in parts]
@@ -376,6 +380,7 @@ def _exact_branch_and_bound(
         n_cycles=model.n_cycles,
         expanded_states=expanded[0],
         exact=True,
+        n_complete_scenarios=complete[0],
     )
 
 
@@ -587,10 +592,14 @@ def enumerate_all_scenarios(
     count_components: str = "real",
     timing: str = "before",
     max_cycles: int = 10,
+    stats: Optional[dict] = None,
 ) -> Iterator[ScenarioResult]:
     """
     Yield every ordered partition with its dynamic cost profile.
     Only feasible for small cycle counts (Fubini numbers grow fast).
+
+    stats: if given, stats["nodes"] counts the nodes of the enumeration
+    tree (the root, every partial and every complete scenario).
     """
     model = DynamicGenomeScenario(cycles, all_nodes, count_components)
     if model.n_cycles > max_cycles:
@@ -599,7 +608,12 @@ def enumerate_all_scenarios(
             "Only use for small instances."
         )
 
+    if stats is not None:
+        stats["nodes"] = 0
+
     def rec(state: int, parts: List[int], costs: List[int], currs: List[int]):
+        if stats is not None:
+            stats["nodes"] += 1
         if state == model.full_mask:
             yield ScenarioResult(
                 status="FEASIBLE",

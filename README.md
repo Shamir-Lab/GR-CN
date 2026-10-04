@@ -39,14 +39,38 @@ bash scripts/reproduce_all.sh
 
 | Paper item | Produced by | Output |
 |---|---|---|
-| Case-study results, Table S1 (phasing ambiguity), Table S2 (C_max distributions) | `analysis/haplotype_options_report/run.py` | `analysis/haplotype_options_report/` |
-| Table S3 (search effort: brute force vs DP vs branch-and-bound) | `benchmark/run_benchmark.py` | `benchmark/results.csv` |
+| **Main text:** case studies — one phasing per sample, its EBG, all scenarios, optimum, search effort | `scripts/run_case_studies.py` | `analysis/case_studies/` |
+| **Main text:** representative scenarios; complete scenarios, search-tree nodes and running time of full enumeration vs branch-and-bound | `scripts/plot_case_studies.py` | `paper_outputs/figures/case_studies/` |
+| Appendix: Table S1 (phasing ambiguity), Table S2 (C_max distributions) | `analysis/haplotype_options_report/run.py` | `analysis/haplotype_options_report/` |
+| Appendix: Table S3 (search effort over all phasings) | `benchmark/run_benchmark.py` | `benchmark/results.csv` |
 | Tables S1–S3 as CSV + LaTeX | `scripts/make_tables.py` | `paper_outputs/tables/` |
-| Genome A / Genome B / scenario figures | `scripts/make_figures.py` | `paper_outputs/figures/` |
+| Genome A / Genome B / EBG / scenario figures | `scripts/make_figures.py` | `paper_outputs/figures/` |
 
 Each sample runs as its own process; the slowest (852_T1_33_23905) takes
 about 1.5 h on one core, the others minutes. CP-SAT runs with one worker
-(`--cpu 1`) so phasing enumeration is deterministic.
+(`--cpu 1`) so phasing enumeration is deterministic. Running times in the
+committed results were measured on a shared Linux server (rack-shamir8);
+absolute times differ by machine, the ratios between methods much less.
+
+### Case-study pipeline
+
+`scripts/run_case_studies.py` takes each JaBbA graph through the whole
+method and analyzes a single phasing per sample:
+
+1. load the graph and reconstruct Genome A;
+2. phase Genome B, enumerating every distinct tied-optimal phasing;
+3. for each phasing, build the EBG and enumerate all its scenarios;
+4. select the phasing whose scenarios vary most in the objective — most
+   distinct C_max values, then most cycles, then highest entropy of the
+   C_max distribution (`select_phasing`) — and, for it, write its CSV
+   deliverable, find the optimum, pick representative scenarios, and measure
+   full enumeration against branch-and-bound (complete scenarios generated,
+   search-tree nodes, median running time over 5 runs).
+
+Per sample, `analysis/case_studies/<sample>/` holds `phasing_options.csv`
+(every distinct phasing with its C_max distribution and the `selected` flag),
+`selected_phasing/` (the CSV deliverable described below) and
+`case_study.json` (everything the figures are drawn from).
 
 ## Pipeline
 
@@ -112,7 +136,8 @@ gr_cn/                          core library package
 main.py                         CLI entry point (run_quick / run_exhaustive)
 
 analysis/
-  haplotype_options_report/     the 3-sample results deliverable (see below)
+  case_studies/                 main-text results: one selected phasing per sample
+  haplotype_options_report/     appendix: every distinct phasing of the 3 samples (see below)
     run.py                        drives all 3 samples through main.run_exhaustive()
 benchmark/
   run_benchmark.py              search-effort benchmark (Table S3)
@@ -120,8 +145,10 @@ benchmark/
   results.csv                   benchmark output, one row per canonical phasing option
 scripts/
   reproduce_all.sh              runs everything below in order
+  run_case_studies.py           case-study pipeline: JaBbA graph -> phasing -> selected phasing -> analysis
+  plot_case_studies.py          case-study figures (scenarios, search effort, running time)
   make_tables.py                Tables S1–S3 (CSV + LaTeX) from the outputs above
-  make_figures.py               Genome A/B/scenario figures for any sample / phasing option
+  make_figures.py               Genome A/B/EBG/scenario figures for any sample / phasing option
 paper_outputs/                  generated tables and figures
 
 data/                            reference annotation (chromosome arm boundaries)

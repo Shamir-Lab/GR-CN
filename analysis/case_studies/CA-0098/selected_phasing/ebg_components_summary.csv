@@ -1,0 +1,8 @@
+cycle_id,n_nodes,n_black_edges,n_grey_edges,chromosomes,haplotypes_involved,node_types,ordered_nodes
+0,8,4,4,18;23,0,DC;synteny,synteny:29h:h0:c0;synteny:30t:h0:c0;DC:30t:h0:c0;DC:30h:h0:c0;synteny:30h:h0:c0;synteny:31t:h0:c0;synteny:138t:h0:c0;synteny:137h:h0:c0
+1,8,4,4,18;23,1,DC;synteny,synteny:29h:h1:c0;synteny:30t:h1:c0;DC:30t:h1:c0;DC:30h:h1:c0;synteny:30h:h1:c0;synteny:31t:h1:c0;synteny:138t:h1:c0;synteny:137h:h1:c0
+2,12,6,6,5;22,0,DC;synteny,synteny:44h:h0:c0;synteny:45t:h0:c0;DC:45t:h0:c0;DC:45h:h0:c0;synteny:45h:h0:c0;synteny:46t:h0:c0;synteny:56h:h0:c0;synteny:57t:h0:c0;DC:57t:h0:c0;DC:57h:h0:c0;synteny:57h:h0:c0;synteny:58t:h0:c0
+3,12,6,6,5;22,1,DC;synteny,synteny:44h:h1:c0;synteny:45t:h1:c0;DC:45t:h1:c0;DC:45h:h1:c0;synteny:45h:h1:c0;synteny:46t:h1:c0;synteny:56h:h1:c0;synteny:57t:h1:c0;DC:57t:h1:c0;DC:57h:h1:c0;synteny:57h:h1:c0;synteny:58t:h1:c0
+4,6,3,3,22,0,DC;synteny,synteny:46h:h0:c0;synteny:47t:h0:c0;DC:47t:h0:c0;DC:47h:h0:c0;synteny:47h:h0:c0;synteny:48t:h0:c0
+5,12,6,6,5;23,0,DC;synteny,synteny:54h:h0:c0;synteny:55t:h0:c0;DC:55t:h0:c0;DC:55h:h0:c0;synteny:55h:h0:c0;synteny:56t:h0:c0;synteny:138h:h0:c0;synteny:139t:h0:c0;DC:139t:h0:c0;DC:139h:h0:c0;synteny:139h:h0:c0;synteny:140t:h0:c0
+6,12,6,6,5;23,1,DC;synteny,synteny:54h:h1:c0;synteny:55t:h1:c0;DC:55t:h1:c0;DC:55h:h1:c0;synteny:55h:h1:c0;synteny:56t:h1:c0;synteny:138h:h1:c0;synteny:139t:h1:c0;DC:139t:h1:c0;DC:139h:h1:c0;synteny:139h:h1:c0;synteny:140t:h1:c0

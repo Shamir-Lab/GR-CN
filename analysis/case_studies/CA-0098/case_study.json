@@ -1,0 +1,168 @@
+{
+  "sample": "CA-0098",
+  "n_distinct_phasings": 1,
+  "n_raw_phasings": 1,
+  "phasing_seconds": 0.6888339575380087,
+  "selected": {
+    "option_id": "option_001",
+    "phasing_label": "phasing_0_0_0",
+    "loose_pairing_label": "no_loose",
+    "n_cycles": 7,
+    "n_scenarios": 47293,
+    "n_distinct_cmax": 7,
+    "cmax_entropy": 1.9897003742575756
+  },
+  "cmax_distribution": {
+    "2": 6360,
+    "3": 10410,
+    "4": 22274,
+    "5": 6169,
+    "6": 1827,
+    "7": 217,
+    "8": 36
+  },
+  "optimal_scenario": {
+    "cmax": 2,
+    "partition": [
+      [
+        6
+      ],
+      [
+        5
+      ],
+      [
+        2,
+        4
+      ],
+      [
+        3
+      ],
+      [
+        1
+      ],
+      [
+        0
+      ]
+    ],
+    "step_costs": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ]
+  },
+  "representative_scenarios": [
+    {
+      "name": "All at once",
+      "cmax": 8,
+      "partition": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      ],
+      "step_costs": [
+        8
+      ]
+    },
+    {
+      "name": "Suboptimal",
+      "cmax": 7,
+      "partition": [
+        [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        [
+          0
+        ]
+      ],
+      "step_costs": [
+        7,
+        2
+      ]
+    },
+    {
+      "name": "Intermediate",
+      "cmax": 4,
+      "partition": [
+        [
+          1,
+          3,
+          6
+        ],
+        [
+          0,
+          2,
+          4,
+          5
+        ]
+      ],
+      "step_costs": [
+        4,
+        4
+      ]
+    },
+    {
+      "name": "Optimal",
+      "cmax": 2,
+      "partition": [
+        [
+          6
+        ],
+        [
+          5
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "step_costs": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ]
+    }
+  ],
+  "effort": {
+    "optimum": 2,
+    "enumeration": {
+      "complete_scenarios": 47293,
+      "tree_nodes": 94586,
+      "seconds": 1.0765741653740406
+    },
+    "branch_and_bound": {
+      "complete_scenarios": 1,
+      "tree_nodes": 8,
+      "seconds": 0.0013888245448470116
+    },
+    "dp": {
+      "seconds": 0.01306342426687479
+    },
+    "repeats": 5
+  }
+}

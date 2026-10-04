@@ -2,7 +2,8 @@
 Draw Genome A, Genome B, the EBG and the optimal scenario for the paper's samples.
 
 For each sample, writes to paper_outputs/figures/<sample>[_<phasing>]/:
-  genome_a, genome_b, ebg, scenario  .{pdf,png}   (matplotlib)
+  genome_a, genome_b, ebg, ebg_cycles, scenario  .{pdf,png}   (matplotlib;
+  ebg_cycles draws only the cycle nodes, for large graphs)
   scenario.html                                  (interactive SVG)
 
 By default the phasing returned by ilp.phase() is drawn. To draw one specific
@@ -82,6 +83,9 @@ def draw(sample: str, option_id: Optional[str], phasing_label: Optional[str],
         fig, _ = fn(path, chromosomes=chroms, pr=pr)
         for ext in ("pdf", "png"):
             fig.savefig(out / f"{name}.{ext}", dpi=200, bbox_inches="tight")
+    fig, _ = scenario_plot.plot_ebg(path, chromosomes=chroms, pr=pr, cycles_only=True)
+    for ext in ("pdf", "png"):
+        fig.savefig(out / f"ebg_cycles.{ext}", dpi=200, bbox_inches="tight")
     svg_export.export_scenario_html(path, chromosomes=chroms, pr=pr,
                                     out_path=str(out / "scenario.html"))
     print(f"{sample}{' ' + tag if tag else ''}: {len(pr.all_cycles)} cycles, "

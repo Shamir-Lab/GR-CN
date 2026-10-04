@@ -7,6 +7,8 @@ archive/
 # per sample are checked in.
 analysis/haplotype_options_report/*/option_*/
 analysis/haplotype_options_report/.overview/
+analysis/case_studies/*/selected_phasing/scenarios_summary.csv
+analysis/case_studies/*/.phasings.pkl
 
 # Run logs and per-sample intermediate outputs of scripts/reproduce_all.sh
 logs/
