@@ -1,21 +1,15 @@
-# GR_CN
+# GR-CN
 
-A maximum-parsimony method for reconstructing multi-chromosomal rearrangement
-histories with copy-number changes from JaBbA genome graphs.
+Reconstructing the evolutionary history of complex genome rearrangements
+with copy-number changes, from JaBbA genome graphs.
 
-Given a JaBbA graph for a cancer sample (the observed, rearranged genome —
-"Genome B"), this pipeline:
-
-1. reconstructs the diploid reference genome it descended from ("Genome A"),
-2. phases Genome B's segments into haplotypes,
-3. builds the **Extended Breakpoint Graph (EBG)** relating A and B,
-4. and searches for the most parsimonious ordered sequence of rearrangement
-   events ("scenario") that transforms A into B, minimizing the number of
-   chromosomes disturbed at any single step.
-
-The whole pipeline has been run end to end on 3 real cancer samples (see
-[Samples](#samples)); this README documents both how to reproduce that and
-exactly what every output file means.
+Given a JaBbA graph of a cancer genome (the observed, rearranged genome,
+"Genome B"), GR-CN reconstructs the diploid genome it descended from
+("Genome A"), builds the **Extended Breakpoint Graph (EBG)** of A and B, and
+searches the rearrangement scenarios that transform A into B — ordered
+partitions of the EBG's alternating cycles into simultaneous steps — for one
+that minimizes the maximum number of genome components affected by any
+single step (C_max).
 
 ## Quick start
 
@@ -26,274 +20,90 @@ source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt      # exact versions used for the paper
 pip install -e .
 pytest                               # checks the paper's CA-0098 numbers (seconds)
-
-# one sample, one phasing, best scenario
-python main.py jabba_data/graphs_all/CA-0098.json --chromosomes 5 18 22 23 --quick
+python run_pipeline.py               # everything in the paper (~1.5 h)
 ```
 
-## Reproducing the paper
+## The pipeline
 
-```bash
-bash scripts/reproduce_all.sh
-```
+`run_pipeline.py` is the single entry point. For each of the three samples it
+runs, in order:
 
-| Paper item | Produced by | Output |
+| Stage | What | Code |
 |---|---|---|
-| **Main text:** case studies — one phasing per sample, its EBG, all scenarios, optimum, search effort | `scripts/run_case_studies.py` | `analysis/case_studies/` |
-| **Main text:** representative scenarios; complete scenarios, search-tree nodes and running time of full enumeration vs branch-and-bound | `scripts/plot_case_studies.py` | `paper_outputs/figures/case_studies/` |
-| Appendix: Table S1 (phasing ambiguity), Table S2 (C_max distributions) | `analysis/haplotype_options_report/run.py` | `analysis/haplotype_options_report/` |
-| Appendix: Table S3 (search effort over all phasings) | `benchmark/run_benchmark.py` | `benchmark/results.csv` |
-| Tables S1–S3 as CSV + LaTeX | `scripts/make_tables.py` | `paper_outputs/tables/` |
-| Genome A / Genome B / EBG / scenario figures | `scripts/make_figures.py` | `paper_outputs/figures/` |
+| 1 | Parse the JaBbA graph (Genome B) and reconstruct the diploid Genome A | `gr_cn/io/` |
+| 2 | Phase Genome B: enumerate every tied-optimal phasing | `gr_cn/phasing/` |
+| 3 | For every phasing: build the EBG, extract its cycles, enumerate all scenarios (C_max distribution), and measure full enumeration vs branch-and-bound | `gr_cn/ebg/`, `gr_cn/scenario/`, `gr_cn/analysis.py` |
+| 4 | Select the phasing whose scenarios vary most in C_max | `gr_cn/analysis.py` |
+| 5 | Write the EBG cycle data of the selected phasing, its optimum and representative scenarios | `gr_cn/report.py`, `gr_cn/analysis.py` |
 
-Each sample runs as its own process; the slowest (852_T1_33_23905) takes
-about 1.5 h on one core, the others minutes. CP-SAT runs with one worker
-(`--cpu 1`) so phasing enumeration is deterministic. Running times in the
-committed results were measured on a shared Linux server (rack-shamir8);
-absolute times differ by machine, the ratios between methods much less.
+and then, over all samples:
 
-### Case-study pipeline
-
-`scripts/run_case_studies.py` takes each JaBbA graph through the whole
-method and analyzes a single phasing per sample:
-
-1. load the graph and reconstruct Genome A;
-2. phase Genome B, enumerating every distinct tied-optimal phasing;
-3. for each phasing, build the EBG and enumerate all its scenarios;
-4. select the phasing whose scenarios vary most in the objective — most
-   distinct C_max values, then most cycles, then highest entropy of the
-   C_max distribution (`select_phasing`) — and, for it, write its CSV
-   deliverable, find the optimum, pick representative scenarios, and measure
-   full enumeration against branch-and-bound (complete scenarios generated,
-   search-tree nodes, median running time over 5 runs).
-
-Per sample, `analysis/case_studies/<sample>/` holds `phasing_options.csv`
-(every distinct phasing with its C_max distribution and the `selected` flag),
-`selected_phasing/` (the CSV deliverable described below) and
-`case_study.json` (everything the figures are drawn from).
-
-## Pipeline
-
-```
-JaBbA JSON
-    │
-    ▼
-1. Preprocessing            gr_cn/io/jabba.py, gr_cn/io/reference.py
-   parse intervals & adjacencies, infer diploid Genome A from Genome B's copy numbers
-    │
-    ▼
-2. Phasing                  gr_cn/phasing/ilp.py, gr_cn/phasing/enumerate.py, gr_cn/phasing/loose.py
-   assign every segment copy to a haplotype via a 3-stage lexicographic
-   CP-SAT solve (min components, then min cross-haplotype edges, then a
-   hap0-priority tie-break); where this optimum is tied, enumerate every
-   tied phasing exactly via no-good cuts; pair up any unresolved loose
-   breakpoints
-    │
-    ▼
-3. Extended Breakpoint Graph        gr_cn/ebg/builder.py, gr_cn/ebg/cycles.py
-   build the EBG (Definition 4), strip shared A∩B adjacencies, extract
-   alternating cycles (Lemma 1)
-    │
-    ▼
-4. Scenario search                  gr_cn/scenario/enumeration.py, clustering.py
-   find the cycle ordering minimizing the max chromosomes touched per step —
-   cycles are first split into independent chromosome clusters, then each
-   cluster is solved exactly (subset-DP or branch-and-bound), cross-checked
-   against true brute-force enumeration wherever tractable
-    │
-    ▼
-5. Reporting                        gr_cn/report.py
-   CSV tables: Genome A, Genome B, EBG structure, cycle summary, and every
-   enumerated scenario, per tied-phasing option, per sample
-```
-
-Two entry points share this machinery for different purposes:
-
-- **`main.py`** — a single run: load one sample, phase it once (`--quick`),
-  or exhaustively enumerate every tied-optimal phasing option (default), and
-  find the best scenario for each. This is the library's CLI entry point.
-- **`analysis/haplotype_options_report/run.py`** — the thin driver that runs
-  `main.py`'s exhaustive path across all 3 named samples and writes the
-  full CSV deliverable tree documented below. This is what actually
-  produced everything under `analysis/haplotype_options_report/`.
-
-## Repository layout
-
-```
-gr_cn/                          core library package
-  io/            jabba.py, reference.py       — parsing + Genome A reconstruction
-  models/        interval.py, adjacency.py, node.py  — data model
-  phasing/       ilp.py                        — phasing CP-SAT model + one-optimal-solution phase()
-                 enumerate.py                  — exhaustive tied-optimal phasing enumeration (no-good cuts)
-                 loose.py                      — loose-end (unresolved breakpoint) matching
-  ebg/           builder.py, cycles.py         — Extended Breakpoint Graph construction + cycle extraction
-  scenario/      enumeration.py                — scenario search (DP / branch-and-bound, exact)
-                 clustering.py                 — independent chromosome-cluster decomposition (union-find)
-                 objective.py                  — alternative scenario objectives (max, sum, max-then-sum)
-  report.py                                    — CSV writers for one tied-phasing option's full deliverable
-  viz/                                         — Genome A/B and scenario drawings (matplotlib + interactive SVG)
-
-main.py                         CLI entry point (run_quick / run_exhaustive)
-
-analysis/
-  case_studies/                 main-text results: one selected phasing per sample
-  haplotype_options_report/     appendix: every distinct phasing of the 3 samples (see below)
-    run.py                        drives all 3 samples through main.run_exhaustive()
-benchmark/
-  run_benchmark.py              search-effort benchmark (Table S3)
-  merge_results.py              combines per-sample benchmark runs
-  results.csv                   benchmark output, one row per canonical phasing option
-scripts/
-  reproduce_all.sh              runs everything below in order
-  run_case_studies.py           case-study pipeline: JaBbA graph -> phasing -> selected phasing -> analysis
-  plot_case_studies.py          case-study figures (scenarios, search effort, running time)
-  make_tables.py                Tables S1–S3 (CSV + LaTeX) from the outputs above
-  make_figures.py               Genome A/B/EBG/scenario figures for any sample / phasing option
-paper_outputs/                  generated tables and figures
-
-data/                            reference annotation (chromosome arm boundaries)
-jabba_data/graphs_all/           the 3 JaBbA samples used by this repo
-tests/                           regression tests pinning the paper's CA-0098 results
-requirements.txt                 exact dependency versions used for the paper
-CITATION.cff                     citation metadata
-LICENSE                          MIT
-
-archive/                         historical/exploratory material, gitignored -- not part of the live pipeline
-```
-
-## Samples
-
-| Sample | Chromosomes | JaBbA file |
+| Stage | What | Code |
 |---|---|---|
-| `CA-0098` | 5, 18, 22, X | `jabba_data/graphs_all/CA-0098.json` |
-| `PM1284` | 3, 11, 12 | `jabba_data/graphs_all/PM1284.json` |
-| `852_T1_33_23905` | 6, 9, 12, 14 | `jabba_data/graphs_all/852_T1_33_23905.json` |
+| 6 | Figures: representative scenarios; complete scenarios, search-tree nodes and running time of full enumeration vs branch-and-bound | `gr_cn/figures.py` |
+| 7 | Supplementary tables S1–S3 | `gr_cn/tables.py` |
 
-## Usage
+Phasing (stage 2) dominates the running time — about 25 min for PM1284 and
+45 min for 852_T1_33_23905 on one core. It is cached, so
+`python run_pipeline.py --reuse-phasing` reruns everything else in minutes.
+CP-SAT runs with one worker (`--cpu 1`), but its solves use wall-clock time
+limits (a timed-out solve is retried with a longer limit). For
+852_T1_33_23905, whose tied-phasing search stops at the 128-phasing cap, the
+set of phasings found can therefore differ between runs on a loaded machine;
+its optimum (C*_max = 4 for every phasing) does not.
 
-### Single run (`main.py`)
+### Samples
 
-```bash
-# Exhaustive (default): every tied-optimal phasing option, full CSV deliverable
-python main.py jabba_data/graphs_all/PM1284.json --chromosomes 3 11 12
-
-# Quick: one arbitrary-but-optimal phasing, just print the best scenario
-python main.py jabba_data/graphs_all/PM1284.json --chromosomes 3 11 12 --quick
-```
-
-Key options:
-
-| Flag | Default | Meaning |
+| Sample | Chromosomes of the event | JaBbA graph |
 |---|---|---|
-| `--L` | 2 | Number of haplotypes |
-| `--chromosomes` | all | Restrict to specific chromosome numbers |
-| `--quick` | off | Single optimal phasing instead of exhaustive enumeration |
-| `--method` | dp | Scenario search: `dp` \| `branch_and_bound` (both exact) |
-| `--timing` | before | Cost timing: `before`\|`after`\|`both` |
-| `--cpu` | 1 | CP-SAT search workers *within* one solve |
-| `--workers` | 1 | Parallel processes *across* independent subgraphs/options |
-| `--dedupe` | off | (exhaustive mode) collapse pure haplotype/copy-label relabelings — see below |
-| `--out-dir` | — | (exhaustive mode) where to write the CSV deliverable |
-| `--merge-haplotypes` | off | (quick mode) merge same-topology cycles across haplotypes into one event |
-| `--out` | — | (quick mode) write the scenario result to a JSON file |
+| CA-0098 | 5, 18, 22, X | `jabba_data/graphs_all/CA-0098.json` |
+| PM1284 | 3, 11, 12 | `jabba_data/graphs_all/PM1284.json` |
+| 852_T1_33_23905 | 6, 9, 12, 14 | `jabba_data/graphs_all/852_T1_33_23905.json` |
 
-### Reproducing the full 3-sample results deliverable
+### Choices made by the pipeline
 
-```bash
-python analysis/haplotype_options_report/run.py                          # all samples, sequentially
-python analysis/haplotype_options_report/run.py --sample PM1284_3_11_12  # one sample
-python analysis/haplotype_options_report/run.py --overview-only          # combine into samples_overview.csv
+- **Tied phasings.** The phasing optimum (a 3-stage lexicographic CP-SAT
+  objective: fewest phased components, then fewest cross-haplotype edges,
+  then a haplotype-0-priority tie-break) is often tied. All tied phasings
+  are enumerated with no-good cuts, capped at 128 per phasing subgraph
+  (`MAX_SOLUTIONS_PER_SUBGRAPH`), and each is crossed with every tied
+  pairing of unresolved loose ends; every resulting option is analyzed.
+  Phasings are not deduplicated: two phasings with the same cycles up to
+  haplotype labels can still differ in C*_max, because the relative
+  haplotypes of the cycles decide which genome components a step affects.
+- **Selected phasing.** Per sample, the phasing with the most distinct C_max
+  values over its scenarios, then the most cycles, then the highest entropy
+  of its C_max distribution (`analysis.select_phasing`). The criterion looks
+  only at how much the objective varies, not at search effort.
+- **Representative scenarios** (`analysis.representative_scenarios`): all
+  cycles at once; all cycles as singletons (the worst-scoring order); the
+  optimum, unless one of these attains it; and a suboptimal scenario that is
+  neither, preferably with three steps.
+- **Search effort.** For each phasing, full enumeration (every ordered
+  partition, with its step profile) and branch-and-bound each run on a fresh
+  cost model; reported are complete scenarios generated, search-tree nodes
+  visited and the median running time over 5 runs. Both, and the subset
+  dynamic program, must reach the same optimum. Committed times were measured
+  on a shared Linux server; absolute times vary by machine.
+
+## Outputs
+
+```
+results/
+  <sample>/
+    phasings.csv          every tied phasing (x loose-end pairing): cycles,
+                          C_max distribution, search effort; `selected` marks the chosen one
+    selected_phasing/     EBG cycle data of the selected phasing (below)
+    summary.json          selection, C_max distribution, optimum, representative
+                          scenarios, search effort
+  figures/                representative_scenarios, effort_scenarios, effort_nodes,
+                          effort_time (PDF + PNG)
+  tables/                 S1_phasings, S2_cmax, S3_effort (CSV + LaTeX)
 ```
 
-Runs all three samples end to end. **For each sample, the raw (undeduplicated)
-tied-phasing enumeration always runs first.** If a sample's phasing is
-completely unambiguous (only CA-0098, currently), that single result is
-written with no suffix. Otherwise, a second, topology-deduplicated
-("canonical") pass also runs, and *both* are written side by side — see
-[Raw vs. canonical phasing options](#raw-vs-canonical-phasing-options) for
-why both are kept.
+### EBG cycle data (`results/<sample>/selected_phasing/`)
 
-## Output structure
-
-```
-analysis/haplotype_options_report/
-  CA-0098_5_18_22_X/                       unambiguous sample: single result
-    option_001/*.csv
-    summary.csv
-  PM1284_3_11_12_raw/                      ambiguous sample: every raw tied phasing
-    option_001/*.csv ... option_128/*.csv
-    summary.csv
-  PM1284_3_11_12_canonical/                same sample: topology-deduplicated
-    option_001/*.csv ... option_048/*.csv
-    summary.csv
-    phasing_equivalence_classes.csv
-  852_T1_33_23905_6_9_12_14_raw/
-  852_T1_33_23905_6_9_12_14_canonical/
-  samples_overview.csv                     one row per sample, cross-sample comparison
-```
-
-**Only `summary.csv`, `samples_overview.csv`, and
-`phasing_equivalence_classes.csv` are checked into git.** The per-option
-`option_NNN/` folders (which can number in the hundreds across all options
-of a sample) are `.gitignore`d and are exactly, deterministically
-reproduced by rerunning `analysis/haplotype_options_report/run.py` — see
-`.gitignore` for the pattern.
-
-### Raw vs. canonical phasing options
-
-JaBbA graphs report unphased somatic copy number, so before the EBG can be
-built, every segment copy must be assigned to a haplotype (`gr_cn.phasing`).
-This phasing optimum is found via a 3-stage lexicographic CP-SAT solve
-(minimize components, then cross-haplotype edges, then a hap0-priority
-tie-break — see [Method](#method)), and it is frequently **tied**: several
-different concrete haplotype assignments achieve the exact same 3-stage
-optimum.
-
-Not all ties are biologically meaningful. A tied phasing can differ from
-another purely by:
-- **haplotype relabeling** — which physical strand is *called* haplotype 0
-  vs. 1 is arbitrary wherever nothing else pins it down, or
-- **gained-copy relabeling** — which of several identical extra
-  (non-reference) copies of a segment is *called* copy_index 1 vs. 2.
-
-Both are pure bookkeeping with no biological content. `gr_cn.phasing.enumerate`
-enumerates every **raw** tied phasing (via CP-SAT no-good cuts), and
-`--dedupe` additionally canonicalizes them by downstream EBG cycle topology
-(stripping the haplotype label from every cycle's node signature) to collapse
-relabeling duplicates down to genuinely distinct **canonical** reconstructions.
-
-This matters because the two numbers tell you different things, and neither
-alone is the full picture:
-
-| Sample | Raw tied phasings | Canonical (distinct) phasings | Optimal score across options |
-|---|---|---|---|
-| CA-0098 | 1 | 1 | 2 (fixed — zero ambiguity) |
-| PM1284 | 128 (capped) | 48 | **3 / 4 / 5 — genuinely varies** |
-| 852_T1_33_23905 | 128 (capped) | 124 | **4 for all 124 — invariant** |
-
-Two importantly different situations, both real:
-- **PM1284**: most of its 128 raw ties (80 of them) really are relabeling
-  noise, but the 48 that remain are *genuinely structurally different*
-  reconstructions, and they disagree on the final answer. The choice of
-  phasing is a real, consequential ambiguity here.
-- **852**: almost none of its 128 raw ties (4) are relabeling noise —
-  124 are genuinely distinct reconstructions (with 5, 6 or 7 EBG cycles) —
-  yet every single one of those 124 agrees on the final score. Real
-  structural ambiguity that doesn't change the reconstructed parsimony
-  objective, not just cosmetic ambiguity that trivially doesn't matter.
-
-**Caveat:** for PM1284 and 852, the raw search is capped at
-`MAX_SOLUTIONS_PER_SUBGRAPH = 128` per phasing subgraph
-(`gr_cn/phasing/enumerate.py`) — a reporting cap, not a claim of
-exhaustiveness (`raw_enumeration_capped` in `summary.csv`/
-`samples_overview.csv` records whether it was hit). Both samples hit it, so
-their raw and canonical counts are lower bounds, not proven totals.
-
-## CSV file reference
-
-### `genome_a.csv` — the reconstructed diploid reference
-
-One row per reference interval.
+**`genome_a.csv`** — the reconstructed diploid Genome A, one row per interval.
 
 | Column | Meaning |
 |---|---|
@@ -301,148 +111,96 @@ One row per reference interval.
 | `chromosome`, `start`, `end`, `length` | Reference coordinates |
 | `diploid_cn` | Expected diploid copy number (normally 2) |
 | `cancer_cn_in_sample` | Observed copy number in Genome B |
-| `n_deleted_copies` | How many of the diploid copies are absent in Genome B |
-| `n_gained_copies` | How many extra (non-reference) copies exist in Genome B |
+| `n_deleted_copies`, `n_gained_copies` | Diploid copies absent from / extra copies present in Genome B |
 | `is_telomere_tail`, `is_telomere_head` | Chromosome-end flags |
-| `is_centromere_included` | Whether this interval spans a centromere |
+| `is_centromere_included` | Whether the interval spans a centromere |
 
-### `genome_b.csv` — the observed rearranged genome's connectivity
-
-One row per haplotype-and-copy-specific node (`node_type, iid, side, haplotype,
-copy_index`), with its actual Genome B partner:
+**`genome_b.csv`** — Genome B connectivity, one row per haplotype- and
+copy-specific segment extremity.
 
 | Column | Meaning |
 |---|---|
-| `node_type` | `synteny` (real segment) or `DC`/`AH` (synthetic deletion-collector / addition-holder) |
-| `iid`, `side`, `haplotype`, `copy_index` | This node's identity |
-| `chromosome`, `position` | Reference location (`-1` for synthetic nodes) |
+| `node_type` | Always `synteny` (real segment extremities) |
+| `iid`, `side`, `haplotype`, `copy_index` | The extremity's identity |
+| `chromosome`, `position` | Reference location |
 | `is_telomere` | Whether this side is a chromosome end |
-| `partner_type`, `partner_iid`, `partner_side`, `partner_haplotype`, `partner_copy_index` | The node it's actually adjacent to in Genome B |
-| `edge_type` | `REF_shared` (unchanged reference adjacency), `ALT_rearranged` (a structural junction), or `UNRESOLVED` (unpaired loose end) |
+| `partner_*` | The node it is adjacent to in Genome B; `partner_type` can also be `DC`/`AH` (deletion-collector / addition-holder) or `telomere` |
+| `edge_type` | `REF_shared` (unchanged adjacency), `ALT_rearranged` (structural junction) or `UNRESOLVED` (unpaired loose end) |
 
-### `ebg_structure.csv` — the Extended Breakpoint Graph's edges
-
-One row per edge (`cycle_id` groups edges into the alternating cycle they
-belong to):
+**`ebg_structure.csv`** — the EBG's edges (adjacencies shared by A and B
+removed), one row per edge.
 
 | Column | Meaning |
 |---|---|
-| `cycle_id` | Which extracted cycle this edge belongs to |
-| `color` | `black` (Genome A / reference adjacency) or `grey` (Genome B / this phasing option's adjacency) |
-| `u_*`, `v_*` | The two endpoint nodes' full identity (`node_type, iid, side, haplotype, copy_index, chromosome, position`) |
+| `cycle_id` | The alternating cycle the edge belongs to |
+| `color` | `black` (Genome A adjacency) or `grey` (Genome B adjacency) |
+| `u_*`, `v_*` | The two endpoints (`node_type, iid, side, haplotype, copy_index, chromosome, position`) |
 
-### `ebg_components_summary.csv` — one row per extracted cycle
+**`ebg_components_summary.csv`** — one row per cycle.
 
 | Column | Meaning |
 |---|---|
 | `cycle_id` | Matches `ebg_structure.csv` |
 | `n_nodes`, `n_black_edges`, `n_grey_edges` | Cycle size |
-| `chromosomes` | `;`-separated reference chromosomes this cycle touches |
-| `haplotypes_involved` | Which haplotype(s) this cycle runs on |
-| `node_types` | `;`-separated distinct node types in the cycle |
-| `ordered_nodes` | The cycle's nodes in traversal order, `type:iid+side:haplotype:copy` |
+| `chromosomes` | `;`-separated reference chromosomes the cycle touches |
+| `haplotypes_involved` | Haplotype(s) the cycle runs on |
+| `node_types` | `;`-separated node types in the cycle |
+| `ordered_nodes` | The cycle's nodes in traversal order, `type:<iid><side>:h<haplotype>:c<copy>` |
 
-### `scenarios_summary.csv` — every possible ordered scenario for one phasing option
-
-One row per ordered partition of that option's cycles into simultaneous
-steps — i.e. literal brute-force enumeration of the scenario search space:
-
-| Column | Meaning |
-|---|---|
-| `scenario_id` | Row identity |
-| `n_steps` | How many steps this ordering uses |
-| `objective_max_chromosomes` | This ordering's cost: the max chromosomes disturbed in any one step |
-| `is_global_optimal` | Whether this ordering achieves the option's true minimum cost |
-| `steps` | `\|`-separated steps, each a `,`-separated list of `cycle_id`s executed together |
-| `step_costs` | `\|`-separated per-step chromosome-disturbance count |
-| `step_chromosomes_before` | `\|`-separated chromosome count present just before each step |
-
-### `summary.csv` — one row per tied-phasing option, per sample folder
+**`scenarios_summary.csv`** — every scenario (ordered partition of the
+cycles). Not tracked in git (47,293 rows for 7 cycles); regenerated by the
+pipeline.
 
 | Column | Meaning |
 |---|---|
-| `option_id` | `option_NNN`, matches the subfolder |
-| `phasing_label`, `loose_pairing_label` | Which tied phasing / loose-end pairing this option is |
-| `n_components`, `n_mixed_haplotype_edges` | This phasing's 3-stage CP-SAT objective values (stages 1–2) |
-| `n_ebg_cycles`, `n_ebg_nodes` | EBG size for this option |
-| `n_possible_scenarios` | Brute-force count of all possible orderings (`scenarios_summary.csv` row count) |
-| `scenarios_enumeration_truncated` | Whether brute-force enumeration itself was capped (separate from the phasing cap) |
-| `optimal_max_chromosomes` | This option's parsimony score |
-| `n_optimal_scenarios` | How many of the possible orderings achieve that score |
-| `n_full_scenarios_bruteforce` | Same as `n_possible_scenarios` (kept for clarity alongside the B&B columns) |
-| `bnb_expanded_states` | How many states the exact branch-and-bound search actually visited |
-| `bnb_matches_full_enum` | Whether B&B's optimum agrees with the brute-force ground truth (always checked) |
-| `bnb_speedup_factor` | `n_full_scenarios_bruteforce / bnb_expanded_states` |
-| `n_real_chromatids_genome_a`, `n_real_chromatids_genome_b` | Real (non-synthetic) chromatid counts, sanity-checked equal unless the sample has a genuine net chromatid gain/loss |
+| `scenario_id` | Row id |
+| `n_steps` | Number of steps |
+| `objective_max_chromosomes` | C_max of the scenario |
+| `is_global_optimal` | Whether it attains the optimum |
+| `steps` | `\|`-separated steps, each a `,`-separated list of `cycle_id`s |
+| `step_costs` | `\|`-separated components affected by each step |
+| `step_chromosomes_before` | `\|`-separated number of components before each step |
 
-### `phasing_equivalence_classes.csv` — canonical folders only
+## Method notes
 
-| Column | Meaning |
-|---|---|
-| `canonical_phasing_label` | The representative raw phasing kept for this canonical option |
-| `n_raw_ties_collapsed` | How many raw ties share this canonical option's downstream topology |
-| `raw_phasing_labels` | `;`-separated list of all those raw phasing labels |
+- **EBG.** Nodes for every synteny block extremity × haplotype × copy, plus
+  DC node pairs for deleted copies, AH node pairs for gained copies, and
+  telomere vertices that close the paths ending at chromosome ends that
+  differ between A and B; black edges are Genome A's adjacencies, grey edges
+  Genome B's. With shared adjacencies removed, the EBG is a union of
+  alternating cycles.
+- **Objective.** Each step of a scenario executes the union of its cycles as
+  one (k,d,g)-break; its cost is the number of current genome components it
+  affects, computed on the intermediate genome by union-find. C_max is the
+  maximum over the steps.
+- **Exact search** (`gr_cn/scenario/enumeration.py`). Branch-and-bound over
+  sets of executed cycles: prunes children whose running maximum reaches the
+  incumbent, states already reached with a no-larger running maximum, and
+  steps whose costliest single cycle cannot beat the incumbent; children are
+  explored cheapest first. A subset dynamic program over all 2^m states and
+  full enumeration of the F_m ordered partitions (F_m the ordered Bell
+  number) serve as independent checks.
 
-### `samples_overview.csv` — one row per sample, cross-sample comparison
+## Repository layout
 
-| Column | Meaning |
-|---|---|
-| `sample` | Sample label |
-| `n_subgraphs` | Independent weakly-connected phasing subgraphs |
-| `n_raw_tied_phasings`, `n_canonical_tied_phasings` | See [Raw vs. canonical](#raw-vs-canonical-phasing-options) |
-| `raw_enumeration_capped` | Whether the raw search hit its solution cap (non-exhaustive) rather than proving completeness |
-| `n_loose_pairing_variants` | Distinct tied loose-end pairings found |
-| `distinct_optimal_max_chromosomes` | `;`-separated set of parsimony scores seen across all options |
-| `objective_is_stable_across_options` | Whether every option agrees on the score |
-
-## Method
-
-The reconstruction follows the paper's formal framework:
-
-- **Definition 4 (Extended Breakpoint Graph):** nodes for every synteny
-  block × haplotype × copy, plus synthetic DC (deletion-collector) and AH
-  (addition-holder) node pairs for deleted/gained segments; black edges are
-  Genome A's adjacencies, grey edges are Genome B's.
-- **Lemma 1:** after removing adjacencies shared by both genomes, the EBG
-  decomposes into alternating black/grey cycles.
-- **Scenario objective:** an ordered partition of these cycles into
-  simultaneous "steps"; the cost of a scenario is the maximum number of
-  chromosome components touched by any single step, minimized over all
-  valid orderings. Cycles are first partitioned into independent
-  chromosome clusters (union-find over shared chromosomes,
-  `gr_cn/scenario/clustering.py`) since disjoint clusters can always be
-  scheduled independently without loss of optimality; each cluster is then
-  solved exactly by one of two independently-implemented algorithms
-  (`gr_cn/scenario/enumeration.py`):
-  - `dp`: subset dynamic programming over all `2^n_cycles` states.
-  - `branch_and_bound`: depth-first search with memoization and pruning,
-    typically visiting far fewer states in practice (see
-    `bnb_expanded_states`/`bnb_speedup_factor` in `summary.csv`).
-  Per-scenario-state connectivity (how many distinct chromosome components
-  exist at a given point in the schedule) is evaluated via union-find with
-  path compression and union-by-rank.
-  Both are cross-checked against true brute-force enumeration of every
-  possible ordering (the Fubini/ordered-Bell number of orderings, capped
-  only when that count itself becomes intractable — `n_full_scenarios_bruteforce`
-  in `summary.csv`), so exactness is verified three independent ways, not
-  just asserted.
-- **Phasing:** a 3-stage lexicographic CP-SAT objective (minimize phased
-  components, then cross-haplotype edges, then a hap0-priority tie-break
-  solved exactly rather than greedily — a greedy per-node tie-break was
-  found to leave a real sample with 22 "unresolved" nodes where the true
-  joint minimum was only 6). Where this optimum is tied, every tied
-  solution is enumerated exactly via CP-SAT no-good cuts
-  (`gr_cn/phasing/enumerate.py`), then optionally canonicalized by
-  downstream EBG topology to separate genuine structural ambiguity from
-  haplotype/copy-label relabeling artifacts (see
-  [Raw vs. canonical](#raw-vs-canonical-phasing-options)).
-
-## Installation
-
-See [Quick start](#quick-start). Requires Python ≥3.10 (results produced
-with 3.13). Core dependencies: `ortools` (CP-SAT), `networkx`, `pandas`,
-`openpyxl`, `matplotlib`; `requirements.txt` pins the exact versions.
+```
+run_pipeline.py        the pipeline (stages 1-7)
+gr_cn/                 library
+  io/                  JaBbA parsing, Genome A reconstruction
+  models/              intervals, adjacencies, EBG nodes
+  phasing/             phasing CP-SAT model, tied-phasing enumeration, loose-end pairing
+  ebg/                 EBG construction, cycle extraction
+  scenario/            scenario cost model, branch-and-bound, DP, enumeration
+  analysis.py          per-phasing analysis, selection, representative scenarios, search effort
+  report.py            CSV writers for the EBG cycle data
+  figures.py           figures
+  tables.py            supplementary tables
+results/               pipeline outputs
+jabba_data/graphs_all/ the three JaBbA graphs
+data/                  chromosome-arm annotation (hg19)
+tests/                 regression tests on the paper's CA-0098 results
+```
 
 ## License
 
-MIT -- see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

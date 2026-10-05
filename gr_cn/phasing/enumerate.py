@@ -394,58 +394,6 @@ def enumerate_sample_phasing_options(graph, reference, L: int = 2, cpu_n: int = 
     return options, meta
 
 
-def canonical_topology_signature(graph, reference, phasing, L: int = 2) -> tuple:
-    """
-    Haplotype-label-independent fingerprint of the downstream EBG cycle
-    structure a phasing produces.
-
-    Two tied-optimal phasings can differ at the raw arc level yet be
-    identical up to a pure relabeling that carries no biological meaning:
-      - swapping which physical strand is CALLED haplotype 0 vs 1 for any
-        rearrangement region untouched by a deletion/gain (nothing in the
-        ILP objective or the hap0-priority tiebreak distinguishes the two
-        labels there),
-      - swapping which extra gained copy is CALLED copy_index 1 vs 2 for a
-        gained interval (both sit on haplotype 0 and are physically
-        indistinguishable pieces of the same parental strand).
-    Grouping candidate phasings by this signature (ebg.cycles._cycle_topology
-    per cycle, the same haplotype-agnostic key merge_partner_cycles already
-    uses to detect homozygous partner cycles) collapses exactly those
-    label-only differences while keeping genuinely different downstream
-    event structures apart.
-    """
-    from gr_cn.ebg import builder, cycles as ebg_cycles
-
-    ebg_nodes = builder.build(graph, reference, phasing, L=L)
-    ebg_cycles.remove_shared_adjacencies(ebg_nodes)
-    raw_cycles = ebg_cycles.extract_cycles(ebg_nodes)
-    per_cycle = sorted(tuple(sorted(ebg_cycles._cycle_topology(cyc))) for cyc in raw_cycles)
-    return tuple(per_cycle)
-
-
-def dedupe_phasing_options_by_topology(graph, reference, options, L: int = 2):
-    """
-    Groups (label, PhasingResult) options by canonical_topology_signature.
-    Returns (representatives, equivalence_classes) where representatives is
-    one (label, phasing) per distinct downstream structure (first one found
-    in each group), and equivalence_classes maps representative label ->
-    list of ALL raw labels (including itself) that collapsed into it.
-    """
-    groups: Dict[tuple, list] = {}
-    for label, phasing in options:
-        sig = canonical_topology_signature(graph, reference, phasing, L=L)
-        groups.setdefault(sig, []).append((label, phasing))
-
-    representatives = []
-    equivalence_classes = {}
-    for members in groups.values():
-        rep_label, rep_phasing = members[0]
-        representatives.append((rep_label, rep_phasing))
-        equivalence_classes[rep_label] = [lbl for lbl, _ in members]
-
-    return representatives, equivalence_classes
-
-
 def enumerate_loose_pairings(graph, phasing) -> List[Tuple[str, list]]:
     """Returns list of (label, extra_pairs) -- all minimal-total-distance
     pairings (ties included). Empty list if nothing to resolve."""
@@ -491,46 +439,23 @@ def enumerate_loose_pairings(graph, phasing) -> List[Tuple[str, list]]:
     return ties
 
 
-def enumerate_full_options(
-    graph, reference, L: int = 2, dedupe: bool = True,
-    cpu_n: int = 1, n_workers: int = 1,
-):
+def enumerate_full_options(graph, reference, L: int = 2, cpu_n: int = 1, n_workers: int = 1):
     """
-    Returns (full, meta, equivalence_classes).
+    Returns (full, meta).
 
     full: list of dicts {option_id, phasing_label, loose_label, phasing,
-    extra_pairs} -- one per (tied phasing) x (tied loose pairing) combo.
-
-    dedupe=True (default): phasings that collapse to the same downstream EBG
-    cycle structure under canonical_topology_signature (pure haplotype-label
-    or gained-copy-label relabeling, see dedupe_phasing_options_by_topology)
-    are deduplicated to a single representative BEFORE crossing with
-    loose-end pairings.
-    dedupe=False: every raw arc-level tied solution found gets its own
-    option, undeduplicated -- including near-duplicates that are the same
-    event with an arbitrary haplotype/copy relabeling.
+    extra_pairs} -- one per (tied phasing) x (tied loose pairing) combo,
+    for every tied-optimal phasing found (no deduplication: phasings that
+    look alike up to haplotype labels can still differ in the scenario
+    objective, since the relative haplotypes of cycles decide which genome
+    components a step affects).
 
     cpu_n / n_workers: see enumerate_sample_phasing_options.
-
-    equivalence_classes: representative phasing_label -> list of ALL raw
-    phasing labels (arc-level distinct, pre-dedup) that collapsed into it.
-    When dedupe=False this is the trivial 1:1 mapping (kept for schema
-    consistency, not because any collapsing happened).
     """
-    raw_phasing_options, meta = enumerate_sample_phasing_options(
+    phasing_options, meta = enumerate_sample_phasing_options(
         graph, reference, L=L, cpu_n=cpu_n, n_workers=n_workers,
     )
-    meta["n_raw_phasing_options"] = len(raw_phasing_options)
-
-    if dedupe:
-        phasing_options, equivalence_classes = dedupe_phasing_options_by_topology(
-            graph, reference, raw_phasing_options, L=L,
-        )
-    else:
-        phasing_options = raw_phasing_options
-        equivalence_classes = {lbl: [lbl] for lbl, _ in raw_phasing_options}
-    meta["n_canonical_phasing_options"] = len(phasing_options)
-    meta["dedupe"] = dedupe
+    meta["n_phasings"] = len(phasing_options)
 
     full = []
     for plabel, phasing in phasing_options:
@@ -546,4 +471,4 @@ def enumerate_full_options(
         opt["option_id"] = f"option_{i + 1:03d}"
     meta["n_loose_pairing_variants"] = len({o["loose_label"] for o in full})
     meta["n_full_options"] = len(full)
-    return full, meta, equivalence_classes
+    return full, meta

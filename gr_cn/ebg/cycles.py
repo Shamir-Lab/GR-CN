@@ -169,49 +169,6 @@ def extract_cycles(nodes: List[EBGNode]) -> List[List[EBGNode]]:
     return cycles
 
 
-def _cycle_topology(cycle: List[EBGNode]) -> frozenset:
-    """
-    Haplotype-agnostic signature for a cycle.
-
-    Two cycles that represent the same structural rearrangement on different
-    haplotypes will have identical signatures.  We strip the haplotype field
-    and keep (node_type, iid, end, copy_index) for every node.
-    """
-    from gr_cn.models.node import NodeType
-    return frozenset(
-        (n.node_type.value, n.iid, n.end.value, n.copy_index)
-        for n in cycle
-    )
-
-
-def merge_partner_cycles(cycles: List[List[EBGNode]]) -> List[List[EBGNode]]:
-    """
-    Merge cycles that represent the same rearrangement on different haplotypes.
-
-    An ALT adjacency with weight k produces k identical EBG cycles, one per
-    haplotype copy.  These are "partner" cycles — they share the same structural
-    topology and always occur as a single event.  Merging them into one combined
-    node list lets the scenario model treat them as one atomic step.
-
-    Returns a list of merged cycles, sorted largest-first by node count.
-    """
-    from collections import defaultdict
-    groups: dict = defaultdict(list)
-    for cyc in cycles:
-        sig = _cycle_topology(cyc)
-        groups[sig].append(cyc)
-
-    merged = []
-    for cyc_list in groups.values():
-        combined = []
-        for c in cyc_list:
-            combined.extend(c)
-        merged.append(combined)
-
-    merged.sort(key=lambda c: -len(c))
-    return merged
-
-
 def order_cycle(cycle: List[EBGNode]) -> List[EBGNode]:
     """
     Return the nodes of a cycle in alternating black/grey traversal order.

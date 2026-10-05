@@ -1,4 +1,0 @@
-sample,n_raw_tied_phasings,n_canonical_tied_phasings,raw_enumeration_capped,n_loose_pairing_variants,n_options,phasing_enumeration_seconds
-CA-0098,1,1,False,1,1,0.8
-PM1284,128,48,True,1,48,1591.0
-852_T1_33_23905,128,124,True,3,124,2563.8

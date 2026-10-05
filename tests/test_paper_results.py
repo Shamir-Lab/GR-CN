@@ -36,7 +36,7 @@ def test_fubini_numbers():
 def ca0098():
     graph = jabba.load(str(CA0098), chromosomes=[5, 18, 22, 23])
     ref = reference.build(graph)
-    options, meta, _eq = penum.enumerate_full_options(graph, ref, L=2, dedupe=True, cpu_n=1)
+    options, meta = penum.enumerate_full_options(graph, ref, L=2, cpu_n=1)
     assert len(options) == 1, "CA-0098 phasing is expected to be unique"
     opt = options[0]
     dr = report.build_option_downstream(graph, ref, opt["phasing"], opt["extra_pairs"], L=2)

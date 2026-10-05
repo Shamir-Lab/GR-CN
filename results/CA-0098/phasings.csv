@@ -1,0 +1,2 @@
+option_id,phasing_label,loose_pairing_label,n_cycles,optimal_cmax,n_distinct_cmax,cmax_entropy,cmax_distribution,enum_complete_scenarios,enum_tree_nodes,enum_seconds,bnb_complete_scenarios,bnb_tree_nodes,bnb_seconds,selected
+option_001,phasing_0_0_0,no_loose,7,2,7,1.9897003742575756,2:6360;3:10410;4:22274;5:6169;6:1827;7:217;8:36,47293,94586,1.040356568992138,1,8,0.0012907637283205986,True
