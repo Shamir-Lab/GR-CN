@@ -120,12 +120,12 @@
     "enumeration": {
       "complete_scenarios": 75,
       "tree_nodes": 150,
-      "seconds": 0.0036208871752023697
+      "seconds": 0.0030365576967597008
     },
     "branch_and_bound": {
       "complete_scenarios": 1,
       "tree_nodes": 14,
-      "seconds": 0.0014674123376607895
+      "seconds": 0.0012170430272817612
     },
     "repeats": 5
   }

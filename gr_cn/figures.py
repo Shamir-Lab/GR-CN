@@ -2,11 +2,10 @@
 Figures of the case studies, drawn from the per-sample summaries written by
 run_pipeline.py (one summary per sample, in paper order):
 
-  representative_scenarios   per sample, components affected at each step of
+  representative_scenarios   A-C: per sample, components affected at each step of
                              representative scenarios with different C_max
-  effort_scenarios           complete scenarios generated: full enumeration vs B&B
-  effort_nodes               search-tree nodes visited:    full enumeration vs B&B
-  effort_time                running time:                 full enumeration vs B&B
+  search_effort              A-C: full enumeration vs branch-and-bound -- complete
+                             scenarios generated, search-tree nodes visited, running time
 """
 from __future__ import annotations
 
@@ -93,43 +92,57 @@ def plot_representative(summaries: List[Dict], out: Path) -> None:
                      color=INK, fontweight="bold")
         ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.17),
                   frameon=False, fontsize=8, handlelength=2.2)
+    _panel_letters(axes)
     axes[0].set_ylabel(r"Components affected, $\chi_t$")
     _save(fig, out, "representative_scenarios")
 
 
-def _effort_bars(summaries, key, ylabel, out: Path, name: str,
-                 scale=1.0, unit="", fmt="{:,.0f}") -> None:
-    fig, ax = plt.subplots(figsize=(6.4, 4.2))
-    width, gap = 0.26, 0.03
+def _panel_letters(axes) -> None:
+    for letter, ax in zip("ABC", axes):
+        ax.text(-0.12, 1.06, letter, transform=ax.transAxes, fontsize=13,
+                fontweight="bold", color=INK, va="bottom")
+
+
+def _effort_panel(ax, summaries, key, title, scale=1.0, unit="", fmt="{:,.0f}") -> None:
+    width, gap = 0.3, 0.03
     for i, st in enumerate(summaries):
         vals = {m: st["effort"][m][key] * scale for m in METHODS}
         for j, m in enumerate(METHODS):
             x = i + (j - 0.5) * (width + gap)
-            ax.bar(x, vals[m], width, color=METHOD_COLORS[m], label=METHOD_LABELS[m] if i == 0 else None)
+            ax.bar(x, vals[m], width, color=METHOD_COLORS[m], label=METHOD_LABELS[m])
             ax.annotate(fmt.format(vals[m]) + unit, (x, vals[m]), xytext=(0, 3),
-                        textcoords="offset points", ha="center", va="bottom", fontsize=8.5, color=INK)
+                        textcoords="offset points", ha="center", va="bottom", fontsize=8, color=INK)
         fold = vals["enumeration"] / vals["branch_and_bound"]
         ax.annotate(f"{fold:,.0f}×" if fold >= 10 else f"{fold:.1f}×", (i, max(vals.values())),
-                    xytext=(0, 19), textcoords="offset points", ha="center", fontsize=9.5,
+                    xytext=(0, 18), textcoords="offset points", ha="center", fontsize=9,
                     fontweight="bold", color=INK,
                     bbox=dict(boxstyle="round,pad=0.25", facecolor=TINT, edgecolor="none"))
     every = [st["effort"][m][key] * scale for st in summaries for m in METHODS]
     ax.set_yscale("log")
-    ax.set_ylim(min(every) / 3, max(every) * 12)
+    ax.set_ylim(min(every) / 3, max(every) * 14)
     ax.set_xticks(range(len(summaries)))
-    ax.set_xticklabels([f"{st['sample']}\n({st['selected']['n_cycles']} cycles)" for st in summaries])
-    ax.set_ylabel(ylabel)
+    ax.set_xticklabels([f"{st['sample']}\n({st['selected']['n_cycles']} cycles)" for st in summaries],
+                       fontsize=8.5)
+    ax.set_title(title, fontsize=11, color=INK, fontweight="bold")
     ax.grid(axis="y", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
-    ax.legend(frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, fontsize=9)
-    _save(fig, out, name)
+
+
+def plot_search_effort(summaries: List[Dict], out: Path) -> None:
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6))
+    _effort_panel(axes[0], summaries, "complete_scenarios", "Complete scenarios generated")
+    _effort_panel(axes[1], summaries, "tree_nodes", "Search-tree nodes visited")
+    _effort_panel(axes[2], summaries, "seconds", "Running time (ms)",
+                  scale=1e3, unit=" ms", fmt="{:,.2f}")
+    _panel_letters(axes)
+    axes[0].set_ylabel("Log scale")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles[:2], labels[:2], loc="lower center", bbox_to_anchor=(0.5, 1.0),
+               ncol=2, frameon=False, fontsize=10)
+    fig.tight_layout()
+    _save(fig, out, "search_effort")
 
 
 def draw_all(summaries: List[Dict], out: Path) -> None:
     plot_representative(summaries, out)
-    _effort_bars(summaries, "complete_scenarios", "Complete scenarios generated (log scale)",
-                 out, "effort_scenarios")
-    _effort_bars(summaries, "tree_nodes", "Search-tree nodes visited (log scale)",
-                 out, "effort_nodes")
-    _effort_bars(summaries, "seconds", "Running time, ms (log scale)", out, "effort_time",
-                 scale=1e3, unit=" ms", fmt="{:,.2f}")
+    plot_search_effort(summaries, out)

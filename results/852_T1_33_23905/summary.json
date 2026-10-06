@@ -4,8 +4,8 @@
   "n_options": 128,
   "phasing_search_capped": true,
   "selected": {
-    "option_id": "option_012",
-    "phasing_label": "phasing_11",
+    "option_id": "option_109",
+    "phasing_label": "phasing_108",
     "loose_pairing_label": "ac_bd",
     "n_cycles": 7
   },
@@ -144,12 +144,12 @@
     "enumeration": {
       "complete_scenarios": 47293,
       "tree_nodes": 94586,
-      "seconds": 1.3300364343449473
+      "seconds": 1.03457423299551
     },
     "branch_and_bound": {
       "complete_scenarios": 2,
       "tree_nodes": 474,
-      "seconds": 0.035189347341656685
+      "seconds": 0.031781816855072975
     },
     "repeats": 5
   }

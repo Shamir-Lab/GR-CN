@@ -30,8 +30,13 @@ from ortools.sat.python import cp_model
 from gr_cn.phasing import ilp, loose
 from gr_cn.phasing.ilp import build_subgraphs
 
+# Solve limits are CP-SAT *deterministic* time (a measure of solver work, not
+# seconds), so a solve that hits its limit does so identically on every
+# machine and under any load: with one worker, phasing enumeration is then
+# reproducible. A generous wall-clock limit only guards against runaways.
 SOLVE_TIME_LIMIT_S = 120.0
 ENUM_SOLVE_TIME_LIMIT_S = 15.0
+WALL_CLOCK_GUARD_S = 3600.0
 # Ties at the exact 3-stage optimum can genuinely number in the dozens+ for
 # larger subgraphs. Enumerating literally all of them is not tractable in
 # report-generation time, so this is a reporting cap, not a claim of
@@ -46,7 +51,8 @@ _CROSS_CHR_PENALTY = loose._CROSS_CHR_PENALTY
 
 def _solver(time_limit: float = SOLVE_TIME_LIMIT_S, workers: int = 1, seed: int = 0) -> cp_model.CpSolver:
     s = cp_model.CpSolver()
-    s.parameters.max_time_in_seconds = time_limit
+    s.parameters.max_deterministic_time = time_limit
+    s.parameters.max_time_in_seconds = WALL_CLOCK_GUARD_S
     s.parameters.num_search_workers = workers
     s.parameters.random_seed = seed
     return s
@@ -249,7 +255,7 @@ def enumerate_subgraph_options(G, alt_adj_weights, cpu_n: int = 1) -> Tuple[List
             # as if INFEASIBLE had been proven. Only after several escalating
             # retries still come back UNKNOWN do we give up (and say so).
             for retry in range(4):
-                solver.parameters.max_time_in_seconds = attempt_time_limit
+                solver.parameters.max_deterministic_time = attempt_time_limit
                 status = solver.Solve(model)
                 if status != cp_model.UNKNOWN:
                     break

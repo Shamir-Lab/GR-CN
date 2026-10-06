@@ -46,11 +46,9 @@ and then, over all samples:
 Phasing (stage 2) dominates the running time — about 25 min for PM1284 and
 45 min for 852_T1_33_23905 on one core. It is cached, so
 `python run_pipeline.py --reuse-phasing` reruns everything else in minutes.
-CP-SAT runs with one worker (`--cpu 1`), but its solves use wall-clock time
-limits (a timed-out solve is retried with a longer limit). For
-852_T1_33_23905, whose tied-phasing search stops at the 128-phasing cap, the
-set of phasings found can therefore differ between runs on a loaded machine;
-its optimum (C*_max = 4 for every phasing) does not.
+Phasing is reproducible: CP-SAT runs with one worker (`--cpu 1`) and its
+solve limits are deterministic time (a measure of solver work, not seconds),
+so the same phasings are found on any machine and under any load.
 
 ### Samples
 
@@ -96,8 +94,9 @@ results/
     selected_phasing/     EBG cycle data of the selected phasing (below)
     summary.json          selection, C_max distribution, optimum, representative
                           scenarios, search effort
-  figures/                representative_scenarios, effort_scenarios, effort_nodes,
-                          effort_time (PDF + PNG)
+  figures/                representative_scenarios (3 panels, one per sample) and
+                          search_effort (3 panels: complete scenarios, search-tree
+                          nodes, running time), PDF + PNG
   tables/                 S1_phasings, S2_cmax, S3_effort (CSV + LaTeX)
 ```
 
