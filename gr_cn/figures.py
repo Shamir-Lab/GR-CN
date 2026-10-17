@@ -9,7 +9,6 @@ run_pipeline.py (one summary per sample, in paper order):
 """
 from __future__ import annotations
 
-from collections import Counter
 from pathlib import Path
 from typing import Dict, List
 
@@ -24,12 +23,12 @@ BLUE, BLUE_MID, BLUE_LIGHT, SLATE, TINT = "#4f78a8", "#7898ba", "#a9bed6", "#717
 METHODS = ("enumeration", "branch_and_bound")
 METHOD_COLORS = {"enumeration": BLUE, "branch_and_bound": BLUE_LIGHT}
 METHOD_LABELS = {"enumeration": "Full enumeration", "branch_and_bound": "Branch-and-bound"}
-SCENARIO_STYLE = {  # color, marker
-    "All at once": (SLATE, "o"),
-    "Suboptimal": (BLUE_LIGHT, "s"),
-    "Singletons": (BLUE_MID, "D"),
+SCENARIO_STYLE = {  # color, marker: four clearly different hues, one per scenario kind
+    "All at once": ("#5b5b5b", "o"),
+    "Singletons": (BLUE, "D"),
     "Singletons (optimal)": (BLUE, "D"),
-    "Optimal": (BLUE, "^"),
+    "Optimal": ("#e8833a", "^"),
+    "Suboptimal": ("#4e9a5a", "s"),
 }
 INK, INK_2, GRID, SURFACE = "#444444", "#595959", "#e6e6e6", "#ffffff"
 
@@ -43,7 +42,7 @@ plt.rcParams.update({
 
 def _save(fig, out: Path, name: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
+    for ext in ("svg", "pdf", "png"):
         fig.savefig(out / f"{name}.{ext}", dpi=200, bbox_inches="tight")
     plt.close(fig)
 
@@ -63,7 +62,7 @@ def plot_representative(summaries: List[Dict], out: Path) -> None:
     fig, axes = plt.subplots(1, len(summaries), figsize=(5.2 * len(summaries), 4.6))
     for ax, st in zip(axes, summaries):
         reps = st["representative_scenarios"]  # all at once, singletons, optimal, suboptimal
-        handles, labeled = [], Counter()
+        handles = []
         for r in reps:
             color, marker = SCENARIO_STYLE[r["name"]]
             x = list(range(1, len(r["step_costs"]) + 1))
@@ -72,14 +71,6 @@ def plot_representative(summaries: List[Dict], out: Path) -> None:
                            solid_capstyle="round", label=f"{r['name']}, $C_{{\\max}}$ = {r['cmax']}: "
                            + _wrap_steps(_partition_label(r["partition"])))
             handles.append(h)
-            # label the last step that attains C_max (the right end of a flat line)
-            peak = len(r["step_costs"]) - 1 - r["step_costs"][::-1].index(r["cmax"])
-            spot = (x[peak], r["cmax"])  # stack labels that would land on the same point
-            ax.annotate(f"$C_{{\\max}}$ = {r['cmax']}", spot,
-                        xytext=(7, 7 + 12 * labeled[spot]), textcoords="offset points", va="bottom",
-                        fontsize=8.5, color=INK_2, zorder=5,
-                        bbox=dict(boxstyle="round,pad=0.15", facecolor=SURFACE, edgecolor="none", alpha=0.9))
-            labeled[spot] += 1
         n_steps = max(len(r["step_costs"]) for r in reps)
         ax.set_xlim(0.6, n_steps + 0.9)
         ax.set_ylim(0, max(r["cmax"] for r in reps) + 1)
