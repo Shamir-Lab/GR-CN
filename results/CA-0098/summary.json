@@ -138,12 +138,12 @@
     "enumeration": {
       "complete_scenarios": 47293,
       "tree_nodes": 94586,
-      "seconds": 0.9891543798148632
+      "seconds": 0.7853672998026013
     },
     "branch_and_bound": {
       "complete_scenarios": 1,
       "tree_nodes": 8,
-      "seconds": 0.0015259739011526108
+      "seconds": 0.0010973326861858368
     },
     "repeats": 5
   }
