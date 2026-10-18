@@ -346,8 +346,9 @@ def build_subgraphs(
         cn_info = reference.get(iv.iid)
         n_deleted = cn_info.n_deleted if cn_info else 0
         n_gained = cn_info.n_gained if cn_info else 0
+        n_baseline = min(L, cn_info.diploid_cn) if cn_info else L
 
-        for hap in range(L):
+        for hap in range(n_baseline):          # haplotype copies that exist in Genome A
             if hap < n_deleted:
                 continue
             t_node: PhaseNode = (iv.iid, "t", hap, 0)

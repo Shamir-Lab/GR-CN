@@ -89,8 +89,9 @@ def build(
         cancer_cn = cn_info.cancer_cn if cn_info else L
         diploid_cn = cn_info.diploid_cn if cn_info else L
 
-        # Baseline haplotype copies (hap 0..L-1, copy_index 0)
-        for hap in range(L):
+        # Baseline haplotype copies (hap 0..diploid_cn-1, copy_index 0): a chromosome
+        # whose baseline ploidy is below L has only that many copies in A
+        for hap in range(min(L, diploid_cn)):
             for end in (End.TAIL, End.HEAD):
                 pos = iv.start if end is End.TAIL else iv.end
                 node = EBGNode.internal(
