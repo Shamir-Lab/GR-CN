@@ -69,8 +69,8 @@ results/
                           scenarios, search effort
   figures/                representative_scenarios (3 panels, one per sample) and
                           search_effort (3 panels: complete scenarios, search-tree
-                          nodes, running time), SVG + PDF + PNG
-  tables/                 S1_phasings, S2_cmax, S3_effort (CSV + LaTeX)
+                          nodes, running time), SVG
+  tables/                 S1_phasings, S2_cmax, S3_effort (CSV)
 ```
 
 ### EBG cycle data (`results/<sample>/selected_phasing/`)

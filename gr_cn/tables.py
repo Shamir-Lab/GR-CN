@@ -1,6 +1,6 @@
 """
 Supplementary tables, built from the per-phasing rows and per-sample
-summaries of run_pipeline.py (CSV + LaTeX tabular each):
+summaries of run_pipeline.py (one CSV each):
 
   S1_phasings      per sample: tied optimal phasings, EBG cycle counts and
                    the distribution of C*_max over them
@@ -67,8 +67,6 @@ def table_s3(phasings: Dict[str, List[Dict]]) -> pd.DataFrame:
 def _write(df: pd.DataFrame, out: Path, name: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
     df.to_csv(out / f"{name}.csv", index=False)
-    (out / f"{name}.tex").write_text(
-        df.to_latex(index=False, escape=True, float_format="%.4g"), encoding="utf-8")
 
 
 def write_all(phasings: Dict[str, List[Dict]], summaries: List[Dict], out: Path) -> None:

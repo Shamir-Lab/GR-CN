@@ -43,8 +43,7 @@ plt.rcParams.update({
 
 def _save(fig, out: Path, name: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    for ext in ("svg", "pdf", "png"):
-        fig.savefig(out / f"{name}.{ext}", dpi=200, bbox_inches="tight")
+    fig.savefig(out / f"{name}.svg", bbox_inches="tight")
     plt.close(fig)
 
 

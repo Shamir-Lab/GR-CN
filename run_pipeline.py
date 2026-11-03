@@ -19,8 +19,8 @@ Outputs (results/):
   <sample>/phasings.csv        every tied phasing: cycles, C_max distribution, effort
   <sample>/selected_phasing/   EBG cycle data of the selected phasing (CSV)
   <sample>/summary.json        selection, optimum, representative scenarios, effort
-  figures/                     PDF + PNG
-  tables/                      CSV + LaTeX
+  figures/                     SVG
+  tables/                      CSV
 
 Usage:
     python run_pipeline.py                     # everything (~1.5 h, dominated by phasing 852)
