@@ -25,8 +25,7 @@ python run_pipeline.py               # everything in the paper (~1.5 h)
 
 ## The pipeline
 
-`run_pipeline.py` is the single entry point. For each of the three samples it
-runs, in order:
+`run_pipeline.py` runs, in order:
 
 | Stage | What | Code |
 |---|---|---|
@@ -57,32 +56,6 @@ so the same phasings are found on any machine and under any load.
 | CA-0098 | 5, 18, 22, X | `jabba_data/graphs_all/CA-0098.json` |
 | PM1284 | 3, 11, 12 | `jabba_data/graphs_all/PM1284.json` |
 | 852_T1_33_23905 | 6, 9, 12, 14 | `jabba_data/graphs_all/852_T1_33_23905.json` |
-
-### Choices made by the pipeline
-
-- **Tied phasings.** The phasing optimum (a 3-stage lexicographic CP-SAT
-  objective: fewest phased components, then fewest cross-haplotype edges,
-  then a haplotype-0-priority tie-break) is often tied. All tied phasings
-  are enumerated with no-good cuts, capped at 128 per phasing subgraph
-  (`MAX_SOLUTIONS_PER_SUBGRAPH`), and each is crossed with every tied
-  pairing of unresolved loose ends; every resulting option is analyzed.
-  Phasings are not deduplicated: two phasings with the same cycles up to
-  haplotype labels can still differ in C*_max, because the relative
-  haplotypes of the cycles decide which genome components a step affects.
-- **Selected phasing.** Per sample, the phasing with the most distinct C_max
-  values over its scenarios, then the most cycles, then the highest entropy
-  of its C_max distribution (`analysis.select_phasing`). The criterion looks
-  only at how much the objective varies, not at search effort.
-- **Representative scenarios** (`analysis.representative_scenarios`): all
-  cycles at once; all cycles as singletons (the worst-scoring order); the
-  optimum, unless one of these attains it; and a suboptimal scenario that is
-  neither, preferably with three steps.
-- **Search effort.** For each phasing, full enumeration (every ordered
-  partition, with its step profile) and branch-and-bound each run on a fresh
-  cost model; reported are complete scenarios generated, search-tree nodes
-  visited and the median running time over 5 runs. Both, and the subset
-  dynamic program, must reach the same optimum. Committed times were measured
-  on a shared Linux server; absolute times vary by machine.
 
 ## Outputs
 
@@ -159,26 +132,6 @@ pipeline.
 | `steps` | `\|`-separated steps, each a `,`-separated list of `cycle_id`s |
 | `step_costs` | `\|`-separated components affected by each step |
 | `step_chromosomes_before` | `\|`-separated number of components before each step |
-
-## Method notes
-
-- **EBG.** Nodes for every synteny block extremity × haplotype × copy, plus
-  DC node pairs for deleted copies, AH node pairs for gained copies, and
-  telomere vertices that close the paths ending at chromosome ends that
-  differ between A and B; black edges are Genome A's adjacencies, grey edges
-  Genome B's. With shared adjacencies removed, the EBG is a union of
-  alternating cycles.
-- **Objective.** Each step of a scenario executes the union of its cycles as
-  one (k,d,g)-break; its cost is the number of current genome components it
-  affects, computed on the intermediate genome by union-find. C_max is the
-  maximum over the steps.
-- **Exact search** (`gr_cn/scenario/enumeration.py`). Branch-and-bound over
-  sets of executed cycles: prunes children whose running maximum reaches the
-  incumbent, states already reached with a no-larger running maximum, and
-  steps whose costliest single cycle cannot beat the incumbent; children are
-  explored cheapest first. A subset dynamic program over all 2^m states and
-  full enumeration of the F_m ordered partitions (F_m the ordered Bell
-  number) serve as independent checks.
 
 ## Repository layout
 
