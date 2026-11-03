@@ -10,14 +10,14 @@ cover all nodes with alternating black (REF) / grey (ALT) edges, minimizing:
 ALT adjacencies are mandatory: each ALT adjacency with weight w must appear
 exactly round(w) times in the phasing solution.
 
-This is implemented as a two-stage CP-SAT solve.
-
-Entry point: phase(graph, L=2) -> PhasingResult
+This module builds the CP-SAT model and the per-subgraph inputs; the solves
+(and the enumeration of all tied-optimal phasings) are in
+gr_cn.phasing.enumerate.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import networkx as nx
 from ortools.sat.python import cp_model
@@ -237,81 +237,6 @@ def _extract_components(V, A, x, s, w, value_fn) -> List[Dict]:
     return components
 
 
-def _solve_subgraph(
-    G: nx.MultiDiGraph,
-    time_limit_s: float,
-    cpu_n: int,
-    alt_adj_weights: Dict[int, int],
-) -> Dict:
-    if len(G.nodes()) == 0:
-        return {"status": "OPTIMAL", "objective_num_components": 0,
-                "objective_num_mixed_haplotype_edges": 0, "components": [],
-                "grey_pairs": []}
-
-    # Stage 1: minimize components (with ALT usage constraints)
-    d1 = _build_model(G)
-    _add_alt_usage_constraints(d1, alt_adj_weights)
-    d1["model"].Minimize(d1["num_comp_expr"])
-    s1 = cp_model.CpSolver()
-    s1.parameters.max_time_in_seconds = time_limit_s
-    s1.parameters.num_search_workers = cpu_n
-    st1 = s1.Solve(d1["model"])
-    if st1 not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return {"status": "INFEASIBLE_OR_UNKNOWN"}
-    opt_comp = int(s1.ObjectiveValue())
-
-    # Stage 2: fix component count, minimize cross-haplotype edges
-    d2 = _build_model(G)
-    _add_alt_usage_constraints(d2, alt_adj_weights)
-    d2["model"].Add(d2["num_comp_expr"] == opt_comp)
-    d2["model"].Minimize(d2["mixed_expr"])
-    s2 = cp_model.CpSolver()
-    s2.parameters.max_time_in_seconds = time_limit_s
-    s2.parameters.num_search_workers = cpu_n
-    st2 = s2.Solve(d2["model"])
-    if st2 not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return {"status": "INFEASIBLE_OR_UNKNOWN"}
-
-    V, A, x, sv, w = d2["V"], d2["A"], d2["x"], d2["s"], d2["w"]
-    arc_color = d2["arc_color"]
-    components = _extract_components(V, A, x, sv, w, s2.Value)
-    status = "OPTIMAL" if st1 == cp_model.OPTIMAL and st2 == cp_model.OPTIMAL else "FEASIBLE"
-
-    # Collect every used grey-colored arc that needs an explicit grey edge
-    # in the EBG -- every used ALT arc (a real structural rearrangement)
-    # and every used REF arc, with no exceptions. A same-haplotype,
-    # copy-index-0 "vanilla" REF arc is NOT special-cased out here: even
-    # though gr_cn.ebg.builder also adds a black edge for every REF
-    # adjacency on every matching haplotype pair at copy_index 0
-    # unconditionally (Genome A's structure doesn't depend on what the
-    # phasing chose), that black edge alone does not tell the EBG whether
-    # this specific connection is *also* real in Genome B -- only an
-    # explicit grey edge does that. Skipping it here previously left
-    # grey_neighbor unset even when the solver genuinely selected the arc,
-    # which rendered the affected nodes as disconnected in Genome B.
-    # Deduplicate by canonical (smaller id first).
-    grey_pairs = []
-    seen: set = set()
-    for arc in A:
-        if s2.Value(x[arc]) != 1 or arc_color[arc] != "G":
-            continue
-        u, v = arc[0], arc[1]
-        canon = (u, v) if id(u) < id(v) else (v, u)
-        if canon not in seen:
-            seen.add(canon)
-            grey_pairs.append((u, v))
-
-    return {
-        "status": status,
-        "objective_num_components": opt_comp,
-        "objective_num_mixed_haplotype_edges": int(s2.ObjectiveValue()),
-        "num_paths": sum(s2.Value(sv[v]) for v in V),
-        "num_singletons": sum(s2.Value(w[v]) for v in V),
-        "components": components,
-        "grey_pairs": grey_pairs,
-    }
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -325,9 +250,7 @@ def build_subgraphs(
     Build the per-weakly-connected-component phasing subgraphs and their
     ALT-adjacency usage weights.
 
-    Each subgraph is solved independently (phase() and
-    gr_cn.phasing.enumerate both do this); splitting them out here means
-    that graph-construction logic exists in exactly one place.
+    Each subgraph is solved independently by gr_cn.phasing.enumerate.
 
     Deleted haplotype copies (n_deleted > 0) are always haplotype indices
     0..n_deleted-1 (both, for a homozygous deletion) — matching the
@@ -400,92 +323,3 @@ def build_subgraphs(
         key=len,
     )
     return subgraphs, alt_adj_weights
-
-
-def _solve_subgraph_task(args: Tuple[int, nx.MultiDiGraph, float, int, Dict[int, int]]) -> Tuple[int, Dict]:
-    """Picklable (index, subgraph, ...) -> (index, result) wrapper for
-    process-pool use -- ProcessPoolExecutor.map needs a single-argument
-    top-level function."""
-    i, sg, time_limit_s, cpu_n, alt_adj_weights = args
-    return i, _solve_subgraph(sg, time_limit_s=time_limit_s, cpu_n=cpu_n,
-                               alt_adj_weights=alt_adj_weights)
-
-
-def phase(
-    graph: JabbaGraph,
-    reference: ReferenceGenome,
-    L: int = 2,
-    time_limit_s: float = 200.0,
-    cpu_n: int = 1,
-    n_workers: int = 1,
-) -> PhasingResult:
-    """
-    Run the phasing ILP on a parsed JABBA graph.
-
-    Parameters
-    ----------
-    graph:
-        Parsed JABBA graph (output of io.jabba.load).
-    reference:
-        Reference genome (Genome A) from io.reference.build(), used to look up
-        each interval's n_deleted / n_gained so haplotype copies that will be
-        DC-capped (deleted) are excluded from phasing up front.
-    L:
-        Number of haplotypes (default 2 for diploid).
-    time_limit_s:
-        Per-subgraph CP-SAT time limit in seconds.
-    cpu_n:
-        Number of CP-SAT worker threads used *within* each subgraph's solve.
-    n_workers:
-        Number of subgraphs to solve in parallel (separate OS processes).
-        Each weakly-connected subgraph is phased fully independently of the
-        others, so this is embarrassingly parallel. Note cpu_n and n_workers
-        multiply (n_workers processes x cpu_n CP-SAT threads each) -- keep
-        their product within your machine's core count.
-
-    Returns
-    -------
-    PhasingResult
-        Phased components with haplotype assignments and ALT adjacency pairs.
-    """
-    subgraphs, alt_adj_weights = build_subgraphs(graph, reference, L=L)
-
-    results: List[Optional[Dict]] = [None] * len(subgraphs)
-    if n_workers > 1 and len(subgraphs) > 1:
-        from concurrent.futures import ProcessPoolExecutor
-        tasks = [(i, sg, time_limit_s, cpu_n, alt_adj_weights) for i, sg in enumerate(subgraphs)]
-        with ProcessPoolExecutor(max_workers=min(n_workers, len(subgraphs))) as ex:
-            for i, result in ex.map(_solve_subgraph_task, tasks):
-                results[i] = result
-    else:
-        for i, sg in enumerate(subgraphs):
-            results[i] = _solve_subgraph(sg, time_limit_s=time_limit_s, cpu_n=cpu_n,
-                                          alt_adj_weights=alt_adj_weights)
-
-    all_components: List[Dict] = []
-    all_grey_pairs: List[Tuple[PhaseNode, PhaseNode]] = []
-    subgraph_results: Dict[str, Dict] = {}
-    total_comp = 0
-    total_mixed = 0
-    overall_status = "OPTIMAL"
-
-    for i, result in enumerate(results):
-        subgraph_results[f"subgraph_{i}"] = result
-        if result["status"] == "INFEASIBLE_OR_UNKNOWN":
-            overall_status = "INFEASIBLE_OR_UNKNOWN"
-            continue
-        if result["status"] == "FEASIBLE":
-            overall_status = "FEASIBLE"
-        all_components.extend(result.get("components", []))
-        all_grey_pairs.extend(result.get("grey_pairs", []))
-        total_comp += result.get("objective_num_components", 0)
-        total_mixed += result.get("objective_num_mixed_haplotype_edges", 0)
-
-    return PhasingResult(
-        components=all_components,
-        grey_pairs=all_grey_pairs,
-        subgraph_results=subgraph_results,
-        num_components=total_comp,
-        num_mixed_haplotype_edges=total_mixed,
-        status=overall_status,
-    )

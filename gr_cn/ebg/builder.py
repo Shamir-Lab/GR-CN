@@ -69,7 +69,7 @@ def build(
     reference:
         Reference genome (Genome A), from io.reference.build().
     phasing:
-        Phasing result from phasing.ilp.phase().
+        One tied-optimal phasing from phasing.enumerate.enumerate_full_options().
     L:
         Number of haplotypes (default 2).
 

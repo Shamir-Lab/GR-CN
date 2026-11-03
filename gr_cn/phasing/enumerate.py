@@ -16,9 +16,8 @@ via no-good cuts, deduplicated by its grey_pairs signature. Subgraphs combine
 by Cartesian product (bounded) and each combined phasing is then crossed with
 every tied-minimal loose-end pairing.
 
-This is the exhaustive counterpart to ilp.phase(): phase() returns one
-optimal phasing; enumerate_full_options() returns every phasing tied at that
-same optimum, crossed with every tied loose-end pairing.
+enumerate_full_options() returns every phasing tied at the optimum, crossed
+with every tied loose-end pairing.
 """
 from __future__ import annotations
 
