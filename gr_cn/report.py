@@ -11,12 +11,21 @@ from __future__ import annotations
 import csv
 from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from gr_cn.ebg import builder, cycles as ebg_cycles
-from gr_cn.models.node import NodeType
+from gr_cn.models.node import EBGNode, NodeType
 from gr_cn.scenario import enumeration
-from gr_cn.scenario.clustering import cycle_chromosomes
+
+
+def cycle_chromosomes(cycle: List[EBGNode]) -> Set[int]:
+    """Return the set of reference chromosomes touched by a cycle."""
+    return {
+        node.ref_chromosome
+        for node in cycle
+        if node.node_type is NodeType.INTERNAL and node.ref_chromosome > 0
+    }
+
 
 # Enumerating every ordered partition (Fubini number) is only sane up to a
 # handful of cycles; above this, fall back to the best-found scenario only
@@ -211,11 +220,7 @@ def write_scenarios_summary_csv(cycles_on_raw, raw_nodes, out_path: Path) -> dic
             })
         n_optimal = sum(1 for r in rows if r["is_global_optimal"])
     else:
-        # find_best_scenario always splits into independent chromosome
-        # clusters internally before searching -- no need to special-case it here.
-        best = enumeration.find_best_scenario(
-            cycles=cycles_on_raw, all_nodes=raw_nodes, timing="before", method="dp",
-        )
+        best = enumeration._dp_exact(chrom_model, timing="before")
         rows.append({
             "scenario_id": 1,
             "n_steps": len(best.partition),

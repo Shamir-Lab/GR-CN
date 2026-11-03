@@ -6,6 +6,7 @@ run_pipeline.py (one summary per sample, in paper order):
                              representative scenarios with different C_max
   search_effort              A-C: full enumeration vs branch-and-bound -- complete
                              scenarios generated, search-tree nodes visited, running time
+                             (one y-axis label per panel, no panel titles)
 """
 from __future__ import annotations
 
@@ -94,7 +95,7 @@ def _panel_letters(axes) -> None:
                 fontweight="bold", color=INK, va="bottom")
 
 
-def _effort_panel(ax, summaries, key, title, scale=1.0, unit="", fmt="{:,.0f}") -> None:
+def _effort_panel(ax, summaries, key, ylabel, scale=1.0, unit="", fmt="{:,.0f}") -> None:
     width, gap = 0.3, 0.03
     for i, st in enumerate(summaries):
         vals = {m: st["effort"][m][key] * scale for m in METHODS}
@@ -114,19 +115,18 @@ def _effort_panel(ax, summaries, key, title, scale=1.0, unit="", fmt="{:,.0f}") 
     ax.set_xticks(range(len(summaries)))
     ax.set_xticklabels([f"{st['sample']}\n({st['selected']['n_cycles']} cycles)" for st in summaries],
                        fontsize=8.5)
-    ax.set_title(title, fontsize=11, color=INK, fontweight="bold")
+    ax.set_ylabel(ylabel)
     ax.grid(axis="y", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
 
 
 def plot_search_effort(summaries: List[Dict], out: Path) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.6))
-    _effort_panel(axes[0], summaries, "complete_scenarios", "Complete scenarios generated")
-    _effort_panel(axes[1], summaries, "tree_nodes", "Search-tree nodes visited")
-    _effort_panel(axes[2], summaries, "seconds", "Running time (ms)",
+    _effort_panel(axes[0], summaries, "complete_scenarios", "Number of scenarios")
+    _effort_panel(axes[1], summaries, "tree_nodes", "Number of nodes visited")
+    _effort_panel(axes[2], summaries, "seconds", "Run time (ms)",
                   scale=1e3, unit=" ms", fmt="{:,.2f}")
     _panel_letters(axes)
-    axes[0].set_ylabel("Log scale")
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles[:2], labels[:2], loc="lower center", bbox_to_anchor=(0.5, 1.0),
                ncol=2, frameon=False, fontsize=10)

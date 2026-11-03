@@ -16,13 +16,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import pandas as pd
 
 from gr_cn.models.interval import Interval
-from gr_cn.models.adjacency import Adjacency, AdjacencyKind
-from gr_cn.io.jabba import JabbaGraph, _centromere_dict, _CHR_ARM_ORDER
+from gr_cn.models.adjacency import Adjacency
+from gr_cn.io.jabba import JabbaGraph, _CHR_ARM_ORDER
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 CHR_ANNOTATIONS_PATH = DATA_DIR / "chr_arm_annotations_modified_xy_hg19.xlsx"
@@ -57,14 +57,14 @@ def _arm_cn(graph: JabbaGraph) -> Dict[str, int]:
 
 def _diploid_cn_per_chrom(arm_cn: Dict[str, int]) -> Dict[int, int]:
     """
-    Return the baseline ploidy per chromosome as max(p_arm_cn, q_arm_cn).
-    Falls back to 2 if an arm is missing.
+    Return the baseline ploidy per chromosome as max(p_arm_cn, q_arm_cn),
+    capped at 2 (Genome A is diploid). Falls back to 2 if an arm is missing.
     """
     result: Dict[int, int] = {}
     for chrom in range(1, 25):
         p = arm_cn.get(f"{chrom}p", 2)
         q = arm_cn.get(f"{chrom}q", 2)
-        result[chrom] = max(p, q)
+        result[chrom] = min(2, max(p, q))
     return result
 
 

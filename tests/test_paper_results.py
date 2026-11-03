@@ -51,7 +51,8 @@ def test_ca0098_cycles(ca0098):
 @pytest.mark.parametrize("method", ["dp", "branch_and_bound"])
 def test_ca0098_optimum(ca0098, method):
     cycles, nodes = ca0098
-    result = enumeration.find_best_scenario(cycles, all_nodes=nodes, method=method)
+    solver = enumeration._dp_exact if method == "dp" else enumeration._exact_branch_and_bound
+    result = solver(enumeration.DynamicGenomeScenario(cycles, nodes), "before")
     assert result.exact
     assert result.objective_value == 2
 

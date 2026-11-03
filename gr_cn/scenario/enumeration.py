@@ -16,19 +16,15 @@ project never exceed ~10 cycles, well within reach of either):
     branches, but has no fixed time-complexity guarantee independent of
     instance shape the way the DP does.
 
-Cycles are always first split into independent chromosome clusters
-(cluster_cycles) before either method runs — clusters can be ordered fully
-independently of one another, so solving them separately is never worse, and
-is exactly as correct, as solving the whole cycle set jointly.
-
-Entry point:
-    find_best_scenario(cycles, all_nodes, method="dp", ...) -> ScenarioResult
-    find_best_scenario_clustered(...) -> (ScenarioResult, per_cluster_detail)
+Entry points (all on the whole cycle set):
+    _exact_branch_and_bound(DynamicGenomeScenario(...), timing) -> ScenarioResult
+    _dp_exact(DynamicGenomeScenario(...), timing)               -> ScenarioResult
+    enumerate_all_scenarios(cycles, all_nodes, ...)             -> every ordered partition
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
 from gr_cn.models.node import EBGNode, NodeType
 
@@ -445,146 +441,8 @@ def _dp_exact(
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Full enumeration
 # ---------------------------------------------------------------------------
-
-def _find_best_scenario_single(
-    cycles: Sequence[Sequence[EBGNode]],
-    all_nodes: Optional[Iterable[EBGNode]],
-    count_components: str,
-    timing: str,
-    method: str,
-) -> ScenarioResult:
-    """Solve one (already-clustered) set of cycles jointly -- no further
-    decomposition. Internal helper; use find_best_scenario / _clustered."""
-    model = DynamicGenomeScenario(cycles, all_nodes, count_components)
-
-    if model.n_cycles == 0:
-        return ScenarioResult(
-            status="OPTIMAL", objective_value=0, partition=[], step_costs=[],
-            step_num_chromosomes=[], method=method, n_cycles=0,
-            expanded_states=0, exact=True,
-        )
-
-    if method == "dp":
-        return _dp_exact(model, timing)
-    if method == "branch_and_bound":
-        return _exact_branch_and_bound(model, timing)
-    raise ValueError(f"method must be 'dp' or 'branch_and_bound', got {method!r}")
-
-
-def find_best_scenario(
-    cycles: Sequence[Sequence[EBGNode]],
-    all_nodes: Optional[Iterable[EBGNode]] = None,
-    count_components: str = "real",
-    timing: str = "before",
-    method: str = "dp",
-) -> ScenarioResult:
-    """
-    Find the scenario (ordered partition of EBG cycles) that minimises
-    the maximum number of genome components touched per step (cost_max).
-
-    Cycles are always first split into independent chromosome clusters and
-    solved separately (see find_best_scenario_clustered) -- this is never
-    worse than solving them jointly and is exactly as correct.
-
-    Parameters
-    ----------
-    cycles:
-        Alternating cycles from ebg.cycles.extract_cycles().
-    all_nodes:
-        All EBG nodes (list(nodes)); used to infer synteny block edges.
-    count_components:
-        'real' counts only components containing real synteny nodes;
-        'all' counts every component including DC/AH auxiliaries.
-    timing:
-        'before' | 'after' | 'both' — when to evaluate chromosome count.
-    method:
-        'dp' (subset dynamic programming, full enumeration) or
-        'branch_and_bound' (depth-first search with pruning). Both exact.
-    """
-    combined, _per_cluster = find_best_scenario_clustered(
-        cycles, all_nodes=all_nodes, count_components=count_components,
-        timing=timing, method=method,
-    )
-    return combined
-
-
-def find_best_scenario_clustered(
-    cycles: Sequence[Sequence[EBGNode]],
-    all_nodes: Optional[Iterable[EBGNode]] = None,
-    count_components: str = "real",
-    timing: str = "before",
-    method: str = "dp",
-) -> Tuple["ScenarioResult", List[Tuple[List[int], "ScenarioResult"]]]:
-    """
-    Find optimal scenario by optimizing each independent chromosome cluster separately.
-
-    Cycles involving completely disjoint chromosome sets can be ordered independently —
-    the optimal ordering within one cluster does not affect another cluster's cost.
-
-    Returns
-    -------
-    combined : ScenarioResult
-        All cluster steps concatenated; objective = max per-cluster objective.
-    per_cluster : list of (global_cycle_indices, ScenarioResult) per cluster.
-    """
-    from gr_cn.scenario.clustering import cluster_cycles
-
-    cycles_list = list(cycles)
-    clusters = cluster_cycles(cycles_list)
-    all_nodes_list = list(all_nodes) if all_nodes is not None else None
-
-    per_cluster: List[Tuple[List[int], ScenarioResult]] = []
-    for cluster_idx in clusters:
-        cluster_cycs = [cycles_list[i] for i in cluster_idx]
-        local = _find_best_scenario_single(
-            cluster_cycs,
-            all_nodes=all_nodes_list,
-            count_components=count_components,
-            timing=timing,
-            method=method,
-        )
-        global_partition = [[cluster_idx[li] for li in step] for step in local.partition]
-        remapped = ScenarioResult(
-            status=local.status,
-            objective_value=local.objective_value,
-            partition=global_partition,
-            step_costs=local.step_costs,
-            step_num_chromosomes=local.step_num_chromosomes,
-            method=local.method,
-            n_cycles=local.n_cycles,
-            expanded_states=local.expanded_states,
-            exact=local.exact,
-            message=local.message,
-        )
-        per_cluster.append((cluster_idx, remapped))
-
-    all_partition: List[List[int]] = []
-    all_costs: List[int] = []
-    all_chroms: List[int] = []
-    for _, cr in per_cluster:
-        all_partition.extend(cr.partition)
-        all_costs.extend(cr.step_costs)
-        all_chroms.extend(cr.step_num_chromosomes)
-
-    combined_obj = max((cr.objective_value for _, cr in per_cluster), default=0)
-    is_exact = all(cr.exact for _, cr in per_cluster)
-
-    combined = ScenarioResult(
-        status="OPTIMAL" if is_exact else "FEASIBLE",
-        objective_value=combined_obj,
-        partition=all_partition,
-        step_costs=all_costs,
-        step_num_chromosomes=all_chroms,
-        method="clustered",
-        n_cycles=len(cycles_list),
-        expanded_states=sum(cr.expanded_states for _, cr in per_cluster),
-        exact=is_exact,
-        message=f"{len(clusters)} independent cluster(s) solved separately.",
-    )
-    return combined, per_cluster
-
 
 def enumerate_all_scenarios(
     cycles: Sequence[Sequence[EBGNode]],

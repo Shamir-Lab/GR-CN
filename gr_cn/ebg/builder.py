@@ -37,7 +37,7 @@ Entry point: build(graph, reference, phasing_result, L=2) -> List[EBGNode]
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from gr_cn.ebg.cycles import cap_open_paths
 from gr_cn.io.jabba import JabbaGraph

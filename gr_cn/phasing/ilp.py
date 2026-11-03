@@ -274,7 +274,6 @@ def _solve_subgraph(
 
     V, A, x, sv, w = d2["V"], d2["A"], d2["x"], d2["s"], d2["w"]
     arc_color = d2["arc_color"]
-    arc_is_alt = d2["arc_is_alt"]
     components = _extract_components(V, A, x, sv, w, s2.Value)
     status = "OPTIMAL" if st1 == cp_model.OPTIMAL and st2 == cp_model.OPTIMAL else "FEASIBLE"
 

@@ -96,7 +96,7 @@ results/
                           scenarios, search effort
   figures/                representative_scenarios (3 panels, one per sample) and
                           search_effort (3 panels: complete scenarios, search-tree
-                          nodes, running time), PDF + PNG
+                          nodes, running time), SVG + PDF + PNG
   tables/                 S1_phasings, S2_cmax, S3_effort (CSV + LaTeX)
 ```
 
@@ -108,9 +108,9 @@ results/
 |---|---|
 | `iid` | Interval id |
 | `chromosome`, `start`, `end`, `length` | Reference coordinates |
-| `diploid_cn` | Expected diploid copy number (normally 2) |
+| `diploid_cn` | Baseline copy number of the chromosome in Genome A: the larger of its two arm ploidies (length-weighted mean CN, rounded), capped at 2 |
 | `cancer_cn_in_sample` | Observed copy number in Genome B |
-| `n_deleted_copies`, `n_gained_copies` | Diploid copies absent from / extra copies present in Genome B |
+| `n_deleted_copies`, `n_gained_copies` | Baseline copies absent from / extra copies present in Genome B |
 | `is_telomere_tail`, `is_telomere_head` | Chromosome-end flags |
 | `is_centromere_included` | Whether the interval spans a centromere |
 
